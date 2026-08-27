@@ -81,6 +81,7 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const [uploadStatusText, setUploadStatusText] = useState<string>("");
+  const [isUploadingAboutPhoto, setIsUploadingAboutPhoto] = useState<boolean>(false);
 
   const [isPhotoFormOpen, setIsPhotoFormOpen] = useState(false);
   const [editingPhoto, setEditingPhoto] = useState<Photo | null>(null);
@@ -1901,17 +1902,119 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
                       />
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       <label className="block font-subheading text-[10px] tracking-widest uppercase text-[#9b8f7f]">
-                        Tautan Foto Filosofi / Pendukung
+                        Foto Filosofi / Pendukung
                       </label>
-                      <input
-                        type="text"
-                        required
-                        value={settingsFormData.about_photo}
-                        onChange={(e) => setSettingsFormData(prev => ({ ...prev, about_photo: e.target.value }))}
-                        className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded-sm py-2.5 px-4 font-body text-xs text-[#eae1d8] focus:outline-none focus:border-[#f6c374] transition-colors"
-                      />
+                      
+                      {settingsFormData.about_photo ? (
+                        <div className="space-y-3">
+                          <div className="relative aspect-[16/9] w-full max-w-md overflow-hidden rounded border border-[#4f4538]/30 bg-[#110e09]">
+                            <img
+                              src={settingsFormData.about_photo}
+                              alt="Foto Filosofi / Pendukung"
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover"
+                            />
+                            {isUploadingAboutPhoto && (
+                              <div className="absolute inset-0 bg-[#110e09]/80 flex items-center justify-center">
+                                <span className="text-xs text-[#f6c374] animate-pulse">Mengunggah...</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex gap-2">
+                            <label className="cursor-pointer py-1.5 px-3 bg-[#4f4538]/20 hover:bg-[#4f4538]/40 text-[#eae1d8] rounded border border-[#4f4538]/30 font-subheading text-[10px] uppercase tracking-wider transition-colors inline-block">
+                              Ganti Foto
+                              <input
+                                type="file"
+                                accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,image/avif"
+                                disabled={isUploadingAboutPhoto}
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  const err = validateImageFile(file);
+                                  if (err) {
+                                    onShowToast(err, "error");
+                                    return;
+                                  }
+                                  setIsUploadingAboutPhoto(true);
+                                  try {
+                                    const publicUrl = await uploadFileToSupabase(file, "images");
+                                    setSettingsFormData(prev => ({ ...prev, about_photo: publicUrl }));
+                                    onShowToast("Foto berhasil diunggah ke Supabase Storage.", "success");
+                                  } catch (err: any) {
+                                    onShowToast(err.message || "Gagal mengunggah foto.", "error");
+                                  } finally {
+                                    setIsUploadingAboutPhoto(false);
+                                  }
+                                  e.target.value = "";
+                                }}
+                                className="hidden"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              disabled={isUploadingAboutPhoto}
+                              onClick={() => {
+                                setSettingsFormData(prev => ({ ...prev, about_photo: "" }));
+                                onShowToast("Foto dihapus. Klik Simpan untuk memperbarui.", "success");
+                              }}
+                              className="py-1.5 px-3 bg-red-950/40 hover:bg-red-950/60 text-red-200 rounded border border-red-900/30 font-subheading text-[10px] uppercase tracking-wider transition-colors"
+                            >
+                              Hapus Foto
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="max-w-md">
+                          <label className={`flex flex-col items-center justify-center aspect-[16/9] w-full border-2 border-dashed rounded-sm cursor-pointer transition-colors ${
+                            isUploadingAboutPhoto 
+                              ? "border-[#f6c374] bg-[#f6c374]/5" 
+                              : "border-[#4f4538]/30 bg-[#110e09] hover:border-[#4f4538]/50 hover:bg-[#4f4538]/5"
+                          }`}>
+                            <div className="flex flex-col items-center justify-center pt-5 pb-6 space-y-2 px-4 text-center">
+                              {isUploadingAboutPhoto ? (
+                                <span className="text-xs text-[#f6c374] animate-pulse font-body">Mengunggah file ke Supabase...</span>
+                              ) : (
+                                <>
+                                  <div className="text-xs text-[#9b8f7f] font-body">
+                                    Klik untuk memilih foto <span className="underline">atau seret file ke sini</span>
+                                  </div>
+                                  <div className="text-[10px] text-[#9b8f7f]/70 uppercase tracking-widest font-subheading">
+                                    JPG, PNG, WEBP, GIF, AVIF — Maks. 100MB
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,image/avif"
+                              disabled={isUploadingAboutPhoto}
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                const err = validateImageFile(file);
+                                if (err) {
+                                  onShowToast(err, "error");
+                                  return;
+                                }
+                                setIsUploadingAboutPhoto(true);
+                                try {
+                                  const publicUrl = await uploadFileToSupabase(file, "images");
+                                  setSettingsFormData(prev => ({ ...prev, about_photo: publicUrl }));
+                                  onShowToast("Foto berhasil diunggah ke Supabase Storage.", "success");
+                                } catch (err: any) {
+                                  onShowToast(err.message || "Gagal mengunggah foto.", "error");
+                                } finally {
+                                  setIsUploadingAboutPhoto(false);
+                                }
+                                e.target.value = "";
+                              }}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
