@@ -20,6 +20,8 @@ import {
   CheckCircle,
   FileText
 } from "lucide-react";
+import { supabase } from "../lib/supabase.js";
+import fallbackData from "../../db.json";
 
 interface AdminDashboardProps {
   token: string;
@@ -100,56 +102,109 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch("/api/admin/data", {
-        headers: { "Authorization": token }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setActivities(data.activities || []);
-        setPhotos(data.photos || []);
-        setSettings(data.settings || null);
-        if (data.settings) {
-          setSettingsFormData({
-            site_name: data.settings.site_name || "",
-            logo: data.settings.logo || "",
-            whatsapp: data.settings.whatsapp || "",
-            accent_color: data.settings.accent_color || "#f6c374",
-            updated_at: data.settings.updated_at || "",
-            school_name: data.settings.school_name || "",
-            address: data.settings.address || "",
-            city: data.settings.city || "",
-            province: data.settings.province || "",
-            country: data.settings.country || "",
-            email: data.settings.email || "",
-            phone: data.settings.phone || "",
-            tata_usaha: data.settings.tata_usaha || "",
-            whatsapp_title: data.settings.whatsapp_title || "",
-            whatsapp_description: data.settings.whatsapp_description || "",
-            about_title: data.settings.about_title || "",
-            about_desc1: data.settings.about_desc1 || "",
-            about_desc2: data.settings.about_desc2 || "",
-            about_photo: data.settings.about_photo || "",
-            vision_title: data.settings.vision_title || "",
-            vision_content: data.settings.vision_content || "",
-            missions: data.settings.missions || [],
-            hero_label: data.settings.hero_label || "",
-            hero_title: data.settings.hero_title || "",
-            hero_description: data.settings.hero_description || "",
-            hero_image: data.settings.hero_image || "",
-            hero_video: data.settings.hero_video || "",
-            hero_source: data.settings.hero_source || "auto",
-            hero_activity_id: data.settings.hero_activity_id || "",
-            sections: data.settings.sections || [],
-            enable_kegiatan_page: data.settings.enable_kegiatan_page !== false,
-            enable_foto_terbaru_page: data.settings.enable_foto_terbaru_page !== false
-          });
-        }
+      // Fetch site settings
+      const { data: settingsData } = await supabase
+        .from("site_settings")
+        .select("*")
+        .eq("id", "default")
+        .maybeSingle();
+
+      let activeSet: Settings | null = null;
+      if (settingsData) {
+        activeSet = settingsData.raw_settings ? (settingsData.raw_settings as Settings) : {
+          site_name: settingsData.site_name || "GALERI EMKA",
+          logo: settingsData.logo || "",
+          whatsapp: settingsData.whatsapp || "628123456789",
+          accent_color: settingsData.accent_color || "#f6c374",
+          updated_at: settingsData.updated_at || new Date().toISOString(),
+          school_name: settingsData.school_name || "SMK Multi Karya",
+          address: settingsData.address || "Jl. SMK Multi Karya No. 45",
+          city: settingsData.city || "Medan",
+          province: settingsData.province || "Sumatera Utara",
+          country: settingsData.country || "Indonesia",
+          email: settingsData.email || "info@multikarya.sch.id",
+          phone: settingsData.phone || "(061) 1234567",
+          tata_usaha: settingsData.tata_usaha || "Senin - Sabtu",
+          whatsapp_title: settingsData.whatsapp_title || "Narahubung Cepat",
+          whatsapp_description: settingsData.whatsapp_description || "Hubungi admin secara langsung melalui WhatsApp.",
+          about_title: settingsData.about_title || "Mengabadikan Jejak, Mengukir Kenangan Sinematik",
+          about_desc1: settingsData.about_desc1 || "Galeri EMKA adalah wadah dokumentasi visual.",
+          about_desc2: settingsData.about_desc2 || "Kami tidak hanya mengambil foto.",
+          about_photo: settingsData.about_photo || "",
+          vision_title: settingsData.vision_title || "Visi & Seni Visual",
+          vision_content: settingsData.vision_content || "Menjadi pusat dokumentasi visual sekolah.",
+          missions: settingsData.missions || [],
+          hero_label: settingsData.hero_label || "DOKUMENTASI SINEMATIK",
+          hero_title: settingsData.hero_title || "GALERI EMKA",
+          hero_description: settingsData.hero_description || "Elevating School Memories into Fine-Art Archives.",
+          hero_image: settingsData.hero_image || "",
+          hero_video: settingsData.hero_video || "",
+          hero_source: settingsData.hero_source || "auto",
+          sections: settingsData.sections || []
+        };
+      }
+
+      // Fetch activities
+      const { data: actData } = await supabase
+        .from("activities")
+        .select("*")
+        .order("date", { ascending: false });
+
+      let mappedActivities: Activity[] = [];
+      if (actData && actData.length > 0) {
+        mappedActivities = actData.map(row => ({
+          id: row.id,
+          title: row.title,
+          slug: row.slug,
+          category: row.category,
+          date: row.date,
+          description: row.description,
+          cover_image: row.cover_image,
+          background_video: row.background_video || "",
+          google_drive_url: row.google_drive_url || null,
+          status: row.published ? "published" : "draft",
+          created_at: row.created_at,
+          updated_at: row.updated_at
+        }));
+      }
+
+      // Fetch photos/media
+      const { data: mediaData } = await supabase
+        .from("activity_media")
+        .select("*")
+        .order("sort_order", { ascending: true });
+
+      let mappedPhotos: Photo[] = [];
+      if (mediaData && mediaData.length > 0) {
+        mappedPhotos = mediaData.map(row => ({
+          id: row.id,
+          activity_id: row.activity_id,
+          title: row.caption || "",
+          image_url: row.url,
+          sort_order: row.sort_order || 0,
+          created_at: row.created_at,
+          updated_at: row.created_at
+        }));
+      }
+
+      // Fallback
+      if (mappedActivities.length === 0 && mappedPhotos.length === 0 && !activeSet) {
+        setActivities((fallbackData.activities || []) as Activity[]);
+        setPhotos((fallbackData.photos || []) as Photo[]);
+        setSettings((fallbackData.settings || null) as Settings | null);
       } else {
-        onShowToast("Sesi habis atau tidak sah. Silakan login kembali.", "error");
-        onLogout();
+        setActivities(mappedActivities);
+        setPhotos(mappedPhotos);
+        if (activeSet) {
+          setSettings(activeSet);
+          setSettingsFormData(activeSet);
+        } else if (fallbackData.settings) {
+          setSettings(fallbackData.settings as Settings);
+          setSettingsFormData(fallbackData.settings as Settings);
+        }
       }
     } catch (err) {
-      onShowToast("Gagal mengambil data dari server.", "error");
+      onShowToast("Kesalahan saat menyinkronkan data dengan Supabase.", "error");
     } finally {
       setIsLoading(false);
     }
@@ -159,48 +214,58 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
     fetchData();
   }, [token]);
 
-  // Handle Base64 file upload for Activity Cover or Photo
+  // Handle File upload using Supabase Storage with local Base64 fallback
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetField: "cover_image" | "background_video" | "photo_url") => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setUploadLoading(true);
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      try {
-        const base64String = reader.result as string;
-        const res = await fetch("/api/admin/upload", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": token
-          },
-          body: JSON.stringify({
-            filename: file.name,
-            content: base64String
-          })
-        });
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+      const filePath = `${fileName}`;
 
-        const data = await res.json();
-        if (res.ok && data.url) {
-          onShowToast("File berhasil diunggah ke server.", "success");
+      // Try uploading to Supabase Storage bucket 'galeri-emka'
+      const { data, error } = await supabase.storage
+        .from('galeri-emka')
+        .upload(filePath, file, { cacheControl: '3600', upsert: true });
+
+      if (error) {
+        console.warn("Storage upload failed, using Base64 fallback:", error);
+        // Fallback: Read as Base64 Data URL
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64String = reader.result as string;
           if (targetField === "cover_image") {
-            setActivityFormData(prev => ({ ...prev, cover_image: data.url }));
+            setActivityFormData(prev => ({ ...prev, cover_image: base64String }));
           } else if (targetField === "background_video") {
-            setActivityFormData(prev => ({ ...prev, background_video: data.url }));
+            setActivityFormData(prev => ({ ...prev, background_video: base64String }));
           } else if (targetField === "photo_url") {
-            setPhotoFormData(prev => ({ ...prev, image_url: data.url }));
+            setPhotoFormData(prev => ({ ...prev, image_url: base64String }));
           }
-        } else {
-          onShowToast(data.error || "Gagal mengunggah file.", "error");
+          onShowToast("File berhasil dimuat sebagai Data URL.", "success");
+        };
+        reader.readAsDataURL(file);
+      } else {
+        // Get public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('galeri-emka')
+          .getPublicUrl(filePath);
+
+        if (targetField === "cover_image") {
+          setActivityFormData(prev => ({ ...prev, cover_image: publicUrl }));
+        } else if (targetField === "background_video") {
+          setActivityFormData(prev => ({ ...prev, background_video: publicUrl }));
+        } else if (targetField === "photo_url") {
+          setPhotoFormData(prev => ({ ...prev, image_url: publicUrl }));
         }
-      } catch (err) {
-        onShowToast("Kesalahan jaringan saat mengunggah file.", "error");
-      } finally {
-        setUploadLoading(false);
+        onShowToast("File berhasil diunggah ke Supabase Storage.", "success");
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      onShowToast("Gagal memproses file.", "error");
+    } finally {
+      setUploadLoading(false);
+    }
   };
 
   // Activity CRUD
@@ -257,33 +322,39 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
     }
 
     try {
-      const url = editingActivity
-        ? `/api/admin/activities/${editingActivity.id}`
-        : "/api/admin/activities";
-      const method = editingActivity ? "PUT" : "POST";
+      const slug = activityFormData.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      const activityId = editingActivity ? editingActivity.id : `act-${Date.now()}`;
+      
+      const dbRow = {
+        id: activityId,
+        title: activityFormData.title,
+        slug: slug,
+        category: activityFormData.category,
+        date: activityFormData.date,
+        description: activityFormData.description,
+        cover_image: activityFormData.cover_image,
+        background_video: activityFormData.background_video || null,
+        google_drive_url: activityFormData.google_drive_url || null,
+        published: activityFormData.status === "published",
+        updated_at: new Date().toISOString()
+      };
 
-      const res = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": token
-        },
-        body: JSON.stringify(activityFormData)
-      });
+      const { error } = await supabase
+        .from("activities")
+        .upsert(dbRow);
 
-      const data = await res.json();
-      if (res.ok) {
+      if (error) {
+        onShowToast(error.message || "Gagal menyimpan kegiatan.", "error");
+      } else {
         onShowToast(
           editingActivity ? "Kegiatan berhasil diperbarui." : "Kegiatan baru berhasil ditambahkan.",
           "success"
         );
         setIsActivityFormOpen(false);
         fetchData();
-      } else {
-        onShowToast(data.error || "Gagal menyimpan kegiatan.", "error");
       }
     } catch (err) {
-      onShowToast("Terjadi kesalahan jaringan.", "error");
+      onShowToast("Terjadi kesalahan koneksi.", "error");
     }
   };
 
@@ -291,18 +362,19 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
     if (!window.confirm("Hapus kegiatan ini beserta seluruh foto di dalamnya? Tindakan ini tidak dapat dibatalkan.")) return;
 
     try {
-      const res = await fetch(`/api/admin/activities/${id}`, {
-        method: "DELETE",
-        headers: { "Authorization": token }
-      });
-      if (res.ok) {
+      const { error } = await supabase
+        .from("activities")
+        .delete()
+        .eq("id", id);
+
+      if (error) {
+        onShowToast(error.message || "Gagal menghapus kegiatan.", "error");
+      } else {
         onShowToast("Kegiatan berhasil dihapus.", "success");
         fetchData();
-      } else {
-        onShowToast("Gagal menghapus kegiatan.", "error");
       }
     } catch (err) {
-      onShowToast("Terjadi kesalahan jaringan.", "error");
+      onShowToast("Terjadi kesalahan koneksi.", "error");
     }
   };
 
@@ -337,33 +409,44 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
     }
 
     try {
-      const url = editingPhoto
-        ? `/api/admin/photos/${editingPhoto.id}`
-        : "/api/admin/photos";
-      const method = editingPhoto ? "PUT" : "POST";
+      const photoId = editingPhoto ? editingPhoto.id : `photo-${Date.now()}`;
+      const dbRow = {
+        id: photoId,
+        activity_id: photoFormData.activity_id,
+        type: "image",
+        url: photoFormData.image_url,
+        caption: photoFormData.title,
+        sort_order: photoFormData.sort_order || 0
+      };
 
-      const res = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": token
-        },
-        body: JSON.stringify(photoFormData)
-      });
+      const { error } = await supabase
+        .from("activity_media")
+        .upsert(dbRow);
 
-      const data = await res.json();
-      if (res.ok) {
-        onShowToast(
-          editingPhoto ? "Detail foto berhasil diperbarui." : "Foto berhasil ditambahkan.",
-          "success"
-        );
-        setIsPhotoFormOpen(false);
-        fetchData();
-      } else {
-        onShowToast(data.error || "Gagal menyimpan foto. Silakan periksa kembali link tautan foto.", "error");
+      if (error) {
+        onShowToast(error.message || "Gagal menyimpan foto.", "error");
+        return;
       }
+
+      // Also upsert to latest_photos table
+      const latestRow = {
+        id: photoId,
+        image_url: photoFormData.image_url,
+        caption: photoFormData.title,
+        activity_id: photoFormData.activity_id,
+        sort_order: photoFormData.sort_order || 0,
+        published: true
+      };
+      await supabase.from("latest_photos").upsert(latestRow);
+
+      onShowToast(
+        editingPhoto ? "Detail foto berhasil diperbarui." : "Foto berhasil ditambahkan.",
+        "success"
+      );
+      setIsPhotoFormOpen(false);
+      fetchData();
     } catch (err) {
-      onShowToast("Terjadi kesalahan jaringan.", "error");
+      onShowToast("Terjadi kesalahan koneksi.", "error");
     }
   };
 
@@ -371,18 +454,22 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
     if (!window.confirm("Hapus foto ini?")) return;
 
     try {
-      const res = await fetch(`/api/admin/photos/${id}`, {
-        method: "DELETE",
-        headers: { "Authorization": token }
-      });
-      if (res.ok) {
-        onShowToast("Foto berhasil dihapus.", "success");
-        fetchData();
-      } else {
-        onShowToast("Gagal menghapus foto.", "error");
+      const { error } = await supabase
+        .from("activity_media")
+        .delete()
+        .eq("id", id);
+
+      if (error) {
+        onShowToast(error.message || "Gagal menghapus foto.", "error");
+        return;
       }
+
+      await supabase.from("latest_photos").delete().eq("id", id);
+
+      onShowToast("Foto berhasil dihapus.", "success");
+      fetchData();
     } catch (err) {
-      onShowToast("Terjadi kesalahan jaringan.", "error");
+      onShowToast("Terjadi kesalahan koneksi.", "error");
     }
   };
 
@@ -403,45 +490,40 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
     ];
 
     try {
-      const res = await fetch("/api/admin/photos/reorder", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": token
-        },
-        body: JSON.stringify({ orders: updatedOrders })
-      });
+      for (const order of updatedOrders) {
+        await supabase
+          .from("activity_media")
+          .update({ sort_order: order.sort_order })
+          .eq("id", order.id);
 
-      if (res.ok) {
-        onShowToast("Urutan foto berhasil diubah.", "success");
-        fetchData();
-      } else {
-        onShowToast("Gagal menyimpan perubahan urutan.", "error");
+        await supabase
+          .from("latest_photos")
+          .update({ sort_order: order.sort_order })
+          .eq("id", order.id);
       }
+
+      onShowToast("Urutan foto berhasil diubah.", "success");
+      fetchData();
     } catch (err) {
-      onShowToast("Kesalahan jaringan.", "error");
+      onShowToast("Gagal menyimpan perubahan urutan.", "error");
     }
   };
 
   const handleSetCoverImage = async (photo: Photo) => {
     try {
-      const res = await fetch(`/api/admin/activities/${photo.activity_id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": token
-        },
-        body: JSON.stringify({ cover_image: photo.image_url })
-      });
+      const { error } = await supabase
+        .from("activities")
+        .update({ cover_image: photo.image_url })
+        .eq("id", photo.activity_id);
 
-      if (res.ok) {
+      if (error) {
+        onShowToast(error.message || "Gagal mengatur cover kegiatan.", "error");
+      } else {
         onShowToast("Foto ini berhasil dijadikan Cover Utama kegiatan.", "success");
         fetchData();
-      } else {
-        onShowToast("Gagal mengatur cover kegiatan.", "error");
       }
     } catch (err) {
-      onShowToast("Kesalahan jaringan.", "error");
+      onShowToast("Kesalahan koneksi.", "error");
     }
   };
 
@@ -467,18 +549,33 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
   const handleResetLayout = async () => {
     if (!window.confirm("Apakah Anda yakin ingin menyetel ulang tata letak beranda ke konfigurasi bawaan sekolah?")) return;
     try {
-      const res = await fetch("/api/admin/settings/reset-layout", {
-        method: "POST",
-        headers: { "Authorization": token }
-      });
-      if (res.ok) {
+      const defaultSettings = fallbackData.settings;
+      const dbRow = {
+        id: "default",
+        school_name: defaultSettings.school_name,
+        address: defaultSettings.address,
+        email: defaultSettings.email,
+        phone: defaultSettings.phone,
+        whatsapp: defaultSettings.whatsapp,
+        about: defaultSettings.about_desc1,
+        vision: defaultSettings.vision_title,
+        mission: defaultSettings.missions.join("\n"),
+        raw_settings: defaultSettings,
+        updated_at: new Date().toISOString()
+      };
+
+      const { error } = await supabase
+        .from("site_settings")
+        .upsert(dbRow);
+
+      if (error) {
+        onShowToast(error.message || "Gagal menyetel ulang tata letak.", "error");
+      } else {
         onShowToast("Tata letak beranda berhasil disetel ulang ke konfigurasi bawaan.", "success");
         fetchData();
-      } else {
-        onShowToast("Gagal menyetel ulang tata letak.", "error");
       }
     } catch (err) {
-      onShowToast("Terjadi kesalahan jaringan.", "error");
+      onShowToast("Terjadi kesalahan koneksi.", "error");
     }
   };
 
@@ -486,24 +583,32 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch("/api/admin/settings", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": token
-        },
-        body: JSON.stringify(settingsFormData)
-      });
+      const dbRow = {
+        id: "default",
+        school_name: settingsFormData.school_name,
+        address: settingsFormData.address,
+        email: settingsFormData.email,
+        phone: settingsFormData.phone,
+        whatsapp: settingsFormData.whatsapp,
+        about: settingsFormData.about_desc1,
+        vision: settingsFormData.vision_title,
+        mission: settingsFormData.missions.join("\n"),
+        raw_settings: settingsFormData,
+        updated_at: new Date().toISOString()
+      };
 
-      const data = await res.json();
-      if (res.ok) {
+      const { error } = await supabase
+        .from("site_settings")
+        .upsert(dbRow);
+
+      if (error) {
+        onShowToast(error.message || "Gagal menyimpan pengaturan.", "error");
+      } else {
         onShowToast("Pengaturan sistem berhasil disimpan.", "success");
         fetchData();
-      } else {
-        onShowToast(data.error || "Gagal menyimpan pengaturan.", "error");
       }
     } catch (err) {
-      onShowToast("Terjadi kesalahan jaringan.", "error");
+      onShowToast("Terjadi kesalahan koneksi.", "error");
     }
   };
 

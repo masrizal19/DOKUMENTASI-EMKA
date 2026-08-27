@@ -9,8 +9,36 @@ import { Activity, Photo, Settings, SectionSetting, MediaItem } from "./src/type
 // Load environment variables
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const resolvedFilename = (() => {
+  try {
+    if (typeof import.meta !== "undefined" && import.meta.url) {
+      return fileURLToPath(import.meta.url);
+    }
+  } catch {
+    // Fall back to empty string
+  }
+  return "";
+})();
+
+// Retrieve standard CommonJS global variables when running inside CommonJS bundles
+function getCJSFilename(): string {
+  try {
+    return (globalThis as any).__filename || __filename || "";
+  } catch {
+    return "";
+  }
+}
+
+function getCJSDirname(): string {
+  try {
+    return (globalThis as any).__dirname || __dirname || "";
+  } catch {
+    return "";
+  }
+}
+
+const finalFilename = resolvedFilename || getCJSFilename();
+const finalDirname = finalFilename ? path.dirname(finalFilename) : getCJSDirname();
 
 const app = express();
 const PORT = 3000;

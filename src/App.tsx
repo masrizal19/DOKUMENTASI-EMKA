@@ -11,6 +11,8 @@ import AdminDashboard from "./components/AdminDashboard.js";
 import Lightbox from "./components/Lightbox.js";
 import Notification from "./components/Notification.js";
 import { Calendar, Tag, Shield, Clock, BookOpen, MapPin, Mail, Phone, ExternalLink, Loader2 } from "lucide-react";
+import { supabase } from "./lib/supabase.js";
+import fallbackData from "../db.json";
 
 export default function App() {
   // Public data state
@@ -43,15 +45,110 @@ export default function App() {
   // 1. Fetch public data
   const fetchPublicData = async () => {
     try {
-      const res = await fetch("/api/public/data");
-      if (res.ok) {
-        const data = await res.json();
-        setActivities(data.activities || []);
-        setPhotos(data.photos || []);
-        setSettings(data.settings || null);
+      // Fetch site settings
+      const { data: settingsData } = await supabase
+        .from("site_settings")
+        .select("*")
+        .eq("id", "default")
+        .maybeSingle();
+
+      let activeSet: Settings | null = null;
+      if (settingsData) {
+        activeSet = settingsData.raw_settings ? (settingsData.raw_settings as Settings) : {
+          site_name: settingsData.site_name || "GALERI EMKA",
+          logo: settingsData.logo || "",
+          whatsapp: settingsData.whatsapp || "628123456789",
+          accent_color: settingsData.accent_color || "#f6c374",
+          updated_at: settingsData.updated_at || new Date().toISOString(),
+          school_name: settingsData.school_name || "SMK Multi Karya",
+          address: settingsData.address || "Jl. SMK Multi Karya No. 45",
+          city: settingsData.city || "Medan",
+          province: settingsData.province || "Sumatera Utara",
+          country: settingsData.country || "Indonesia",
+          email: settingsData.email || "info@multikarya.sch.id",
+          phone: settingsData.phone || "(061) 1234567",
+          tata_usaha: settingsData.tata_usaha || "Senin - Sabtu",
+          whatsapp_title: settingsData.whatsapp_title || "Narahubung Cepat",
+          whatsapp_description: settingsData.whatsapp_description || "Hubungi admin secara langsung melalui WhatsApp.",
+          about_title: settingsData.about_title || "Mengabadikan Jejak, Mengukir Kenangan Sinematik",
+          about_desc1: settingsData.about_desc1 || "Galeri EMKA adalah wadah dokumentasi visual.",
+          about_desc2: settingsData.about_desc2 || "Kami tidak hanya mengambil foto.",
+          about_photo: settingsData.about_photo || "",
+          vision_title: settingsData.vision_title || "Visi & Seni Visual",
+          vision_content: settingsData.vision_content || "Menjadi pusat dokumentasi visual sekolah.",
+          missions: settingsData.missions || [],
+          hero_label: settingsData.hero_label || "DOKUMENTASI SINEMATIK",
+          hero_title: settingsData.hero_title || "GALERI EMKA",
+          hero_description: settingsData.hero_description || "Elevating School Memories into Fine-Art Archives.",
+          hero_image: settingsData.hero_image || "",
+          hero_video: settingsData.hero_video || "",
+          hero_source: settingsData.hero_source || "auto",
+          sections: settingsData.sections || []
+        };
+      }
+
+      // Fetch activities
+      const { data: actData } = await supabase
+        .from("activities")
+        .select("*")
+        .order("date", { ascending: false });
+
+      let mappedActivities: Activity[] = [];
+      if (actData && actData.length > 0) {
+        mappedActivities = actData.map(row => ({
+          id: row.id,
+          title: row.title,
+          slug: row.slug,
+          category: row.category,
+          date: row.date,
+          description: row.description,
+          cover_image: row.cover_image,
+          background_video: row.background_video || "",
+          google_drive_url: row.google_drive_url || null,
+          status: row.published ? "published" : "draft",
+          created_at: row.created_at,
+          updated_at: row.updated_at
+        }));
+      }
+
+      // Fetch photos/media
+      const { data: mediaData } = await supabase
+        .from("activity_media")
+        .select("*")
+        .order("sort_order", { ascending: true });
+
+      let mappedPhotos: Photo[] = [];
+      if (mediaData && mediaData.length > 0) {
+        mappedPhotos = mediaData.map(row => ({
+          id: row.id,
+          activity_id: row.activity_id,
+          title: row.caption || "",
+          image_url: row.url,
+          sort_order: row.sort_order || 0,
+          created_at: row.created_at,
+          updated_at: row.created_at
+        }));
+      }
+
+      // If we got no data from Supabase, fall back to fallbackData
+      if (mappedActivities.length === 0 && mappedPhotos.length === 0 && !activeSet) {
+        setActivities((fallbackData.activities || []) as Activity[]);
+        setPhotos((fallbackData.photos || []) as Photo[]);
+        setSettings((fallbackData.settings || null) as Settings | null);
+      } else {
+        setActivities(mappedActivities);
+        setPhotos(mappedPhotos);
+        if (activeSet) {
+          setSettings(activeSet);
+        } else {
+          setSettings((fallbackData.settings || null) as Settings | null);
+        }
       }
     } catch (error) {
-      showToast("Gagal terhubung ke server. Menggunakan data lokal.", "error");
+      console.error("Supabase load error, falling back to local data:", error);
+      setActivities((fallbackData.activities || []) as Activity[]);
+      setPhotos((fallbackData.photos || []) as Photo[]);
+      setSettings((fallbackData.settings || null) as Settings | null);
     } finally {
       setIsLoading(false);
     }
@@ -59,18 +156,14 @@ export default function App() {
 
   // 2. Verify Admin Token on load
   const verifyAdminToken = async () => {
-    if (!adminToken) return;
     try {
-      const res = await fetch("/api/admin/verify", {
-        headers: { "Authorization": adminToken }
-      });
-      const data = await res.json();
-      if (res.ok && data.valid) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session && session.user && session.user.email === "admin@multikarya.sch.id") {
         setIsAdminLoggedIn(true);
+        setAdminToken(session.access_token);
       } else {
-        localStorage.removeItem("admin_token");
-        setAdminToken(null);
         setIsAdminLoggedIn(false);
+        setAdminToken(null);
       }
     } catch (_) {
       setIsAdminLoggedIn(false);
@@ -139,7 +232,8 @@ export default function App() {
     navigateTo("admin");
   };
 
-  const handleAdminLogout = () => {
+  const handleAdminLogout = async () => {
+    await supabase.auth.signOut();
     localStorage.removeItem("admin_token");
     setAdminToken(null);
     setIsAdminLoggedIn(false);

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { motion } from "motion/react";
 import { Lock, ArrowLeft, Loader2 } from "lucide-react";
+import { supabase } from "../lib/supabase.js";
 
 interface AdminLoginProps {
   onLoginSuccess: (token: string) => void;
@@ -21,24 +22,24 @@ export default function AdminLogin({ onLoginSuccess, onBackToHome, onShowToast }
     setIsError(false);
 
     try {
-      const res = await fetch("/api/admin/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin })
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: "admin@multikarya.sch.id",
+        password: pin
       });
 
-      const data = await res.json();
-
-      if (res.ok && data.success) {
+      if (error) {
+        setIsError(true);
+        onShowToast("PIN atau kredensial yang dimasukkan salah. Silakan coba lagi.", "error");
+      } else if (data.session) {
         onShowToast("Login Berhasil! Selamat datang di dashboard admin.", "success");
-        onLoginSuccess(data.token);
+        onLoginSuccess(data.session.access_token);
       } else {
         setIsError(true);
-        onShowToast(data.error || "PIN yang Anda masukkan salah. Silakan coba kembali.", "error");
+        onShowToast("Gagal memulai sesi. Silakan coba lagi.", "error");
       }
     } catch (err) {
       setIsError(true);
-      onShowToast("Terjadi kesalahan jaringan. Silakan coba lagi.", "error");
+      onShowToast("Terjadi kesalahan jaringan atau koneksi Supabase.", "error");
     } finally {
       setIsLoading(false);
     }
