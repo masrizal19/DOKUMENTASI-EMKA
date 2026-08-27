@@ -99,7 +99,7 @@ export default function KegiatanPage({ activities, photos, onViewActivity }: Keg
                 <Grid className="w-12 h-12 text-[#f6c374]/40" />
                 <div className="space-y-2">
                   <h3 className="font-display text-lg font-bold text-[#f6c374]">
-                    BELUM ADA KEGIATAN YANG SINKRON DENGAN DATABASE SUPABASE
+                    BELUM ADA KEGIATAN YANG DITERBITKAN
                   </h3>
                   <p className="font-body text-xs text-[#9b8f7f] max-w-md mx-auto">
                     Arsip kegiatan kosong atau sedang dalam status draf di panel admin. Coba ubah kategori filter atau periksa kembali database.

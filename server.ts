@@ -5,7 +5,6 @@ import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { Activity, Photo, Settings, SectionSetting, MediaItem } from "./src/types.js";
-import { createClient } from "@supabase/supabase-js";
 
 // Load environment variables
 dotenv.config();
@@ -18,17 +17,7 @@ const PORT = 3000;
 const DB_PATH = path.join(process.cwd(), "db.json");
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 
-// Initialize Supabase Client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "";
-const useSupabase = !!(supabaseUrl && supabaseKey);
-const supabase = useSupabase ? createClient(supabaseUrl, supabaseKey) : null;
-
-if (useSupabase) {
-  console.log("Supabase integrated successfully. Server will sync with Supabase DB.");
-} else {
-  console.log("Supabase credentials not found. Server will run on local db.json fallback.");
-}
+console.log("Server initialized. Running on local db.json database with link-based media.");
 
 // Ensure uploads directory exists
 if (!fs.existsSync(UPLOADS_DIR)) {
@@ -478,49 +467,6 @@ app.get("/api/public/data", async (req, res) => {
     const expectedToken = `session_${adminPin}`;
     const isAdmin = token === expectedToken || token === `Bearer ${expectedToken}` || token === expectedToken;
 
-    if (useSupabase && supabase) {
-      try {
-        // 1. Fetch activities
-        let actQuery = supabase.from("activities").select("*");
-        if (!isAdmin) {
-          actQuery = actQuery.eq("status", "published");
-        }
-        const { data: activities, error: actError } = await actQuery.order("date", { ascending: false });
-        if (actError) throw actError;
-
-        // 2. Fetch photos
-        const displayActIds = (activities || []).map((a: any) => a.id);
-        let photos: any[] = [];
-        if (displayActIds.length > 0) {
-          const { data: photoData, error: photoError } = await supabase
-            .from("photos")
-            .select("*")
-            .in("activity_id", displayActIds)
-            .order("sort_order", { ascending: true });
-          if (photoError) throw photoError;
-          photos = photoData || [];
-        }
-
-        // 3. Fetch settings
-        const { data: settingsData, error: settingsError } = await supabase
-          .from("site_settings")
-          .select("*")
-          .eq("id", "default")
-          .single();
-        
-        let settingsObj = settingsData ? migrateSettings(settingsData) : migrateSettings(null);
-
-        return res.json({
-          activities: activities || [],
-          photos,
-          settings: settingsObj
-        });
-      } catch (supabaseErr: any) {
-        // Silent fallback to avoid triggering automated log warning scanners
-      }
-    }
-
-    // Fallback local JSON
     const db = readDB();
     const displayActivities = isAdmin 
       ? db.activities 
@@ -543,44 +489,6 @@ app.get("/api/public/data", async (req, res) => {
 // --- ADMIN DATA ENDPOINTS (FULL ACCESS) ---
 app.get("/api/admin/data", requireAdmin, async (req, res) => {
   try {
-    if (useSupabase && supabase) {
-      try {
-        const { data: activities, error: actError } = await supabase
-          .from("activities")
-          .select("*")
-          .order("date", { ascending: false });
-        if (actError) throw actError;
-
-        const { data: photos, error: photoError } = await supabase
-          .from("photos")
-          .select("*")
-          .order("sort_order", { ascending: true });
-        if (photoError) throw photoError;
-
-        const { data: settingsData, error: settingsError } = await supabase
-          .from("site_settings")
-          .select("*")
-          .eq("id", "default")
-          .single();
-        
-        let settingsObj = settingsData ? migrateSettings(settingsData) : migrateSettings(null);
-
-        const { data: medias, error: mediaError } = await supabase
-          .from("media")
-          .select("*")
-          .order("created_at", { ascending: false });
-        
-        return res.json({
-          activities: activities || [],
-          photos: photos || [],
-          settings: settingsObj,
-          medias: medias || []
-        });
-      } catch (supabaseErr: any) {
-        // Silent fallback to avoid triggering automated log warning scanners
-      }
-    }
-
     const db = readDB();
     res.json(db);
   } catch (err: any) {
@@ -602,19 +510,9 @@ app.post("/api/admin/activities", requireAdmin, async (req, res) => {
     let slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
     
     // Check slug uniqueness
-    if (useSupabase && supabase) {
-      const { data: existing } = await supabase
-        .from("activities")
-        .select("slug")
-        .eq("slug", slug);
-      if (existing && existing.length > 0) {
-        slug = `${slug}-${Date.now().toString().slice(-4)}`;
-      }
-    } else {
-      const db = readDB();
-      if (db.activities.some(act => act.slug === slug)) {
-        slug = `${slug}-${Date.now().toString().slice(-4)}`;
-      }
+    const db = readDB();
+    if (db.activities.some(act => act.slug === slug)) {
+      slug = `${slug}-${Date.now().toString().slice(-4)}`;
     }
 
     const newActivity: Activity = {
@@ -632,14 +530,8 @@ app.post("/api/admin/activities", requireAdmin, async (req, res) => {
       updated_at: new Date().toISOString()
     };
 
-    if (useSupabase && supabase) {
-      const { error } = await supabase.from("activities").insert(newActivity);
-      if (error) throw error;
-    } else {
-      const db = readDB();
-      db.activities.push(newActivity);
-      writeDB(db);
-    }
+    db.activities.push(newActivity);
+    writeDB(db);
 
     res.json({ success: true, activity: newActivity });
   } catch (err: any) {
@@ -658,20 +550,9 @@ app.put("/api/admin/activities/:id", requireAdmin, async (req, res) => {
     if (title) {
       slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
       // Check slug uniqueness
-      if (useSupabase && supabase) {
-        const { data: existing } = await supabase
-          .from("activities")
-          .select("id, slug")
-          .eq("slug", slug)
-          .neq("id", id);
-        if (existing && existing.length > 0) {
-          slug = `${slug}-${Date.now().toString().slice(-4)}`;
-        }
-      } else {
-        const db = readDB();
-        if (db.activities.some(act => act.slug === slug && act.id !== id)) {
-          slug = `${slug}-${Date.now().toString().slice(-4)}`;
-        }
+      const db = readDB();
+      if (db.activities.some(act => act.slug === slug && act.id !== id)) {
+        slug = `${slug}-${Date.now().toString().slice(-4)}`;
       }
     }
 
@@ -688,25 +569,14 @@ app.put("/api/admin/activities/:id", requireAdmin, async (req, res) => {
     if (google_drive_url !== undefined) updates.google_drive_url = google_drive_url;
     if (status !== undefined) updates.status = status;
 
-    if (useSupabase && supabase) {
-      const { data, error } = await supabase
-        .from("activities")
-        .update(updates)
-        .eq("id", id)
-        .select()
-        .single();
-      if (error) throw error;
-      res.json({ success: true, activity: data });
-    } else {
-      const db = readDB();
-      const idx = db.activities.findIndex(act => act.id === id);
-      if (idx === -1) {
-        return res.status(404).json({ error: "Activity not found" });
-      }
-      db.activities[idx] = { ...db.activities[idx], ...updates };
-      writeDB(db);
-      res.json({ success: true, activity: db.activities[idx] });
+    const db = readDB();
+    const idx = db.activities.findIndex(act => act.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ error: "Activity not found" });
     }
+    db.activities[idx] = { ...db.activities[idx], ...updates };
+    writeDB(db);
+    res.json({ success: true, activity: db.activities[idx] });
   } catch (err: any) {
     console.error("Error in PUT /api/admin/activities/:id:", err);
     res.status(500).json({ error: "Gagal memperbarui kegiatan." });
@@ -718,19 +588,14 @@ app.delete("/api/admin/activities/:id", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (useSupabase && supabase) {
-      const { error } = await supabase.from("activities").delete().eq("id", id);
-      if (error) throw error;
-    } else {
-      const db = readDB();
-      const actIndex = db.activities.findIndex(act => act.id === id);
-      if (actIndex === -1) {
-        return res.status(404).json({ error: "Activity not found" });
-      }
-      db.activities.splice(actIndex, 1);
-      db.photos = db.photos.filter(p => p.activity_id !== id);
-      writeDB(db);
+    const db = readDB();
+    const actIndex = db.activities.findIndex(act => act.id === id);
+    if (actIndex === -1) {
+      return res.status(404).json({ error: "Activity not found" });
     }
+    db.activities.splice(actIndex, 1);
+    db.photos = db.photos.filter(p => p.activity_id !== id);
+    writeDB(db);
 
     res.json({ success: true, message: "Kegiatan berhasil dihapus." });
   } catch (err: any) {
@@ -757,15 +622,10 @@ app.post("/api/admin/photos", requireAdmin, async (req, res) => {
       }
     }
 
+    const db = readDB();
     let calculatedSortOrder = sort_order;
     if (calculatedSortOrder === undefined) {
-      if (useSupabase && supabase) {
-        const { data } = await supabase.from("photos").select("id").eq("activity_id", activity_id);
-        calculatedSortOrder = (data || []).length + 1;
-      } else {
-        const db = readDB();
-        calculatedSortOrder = db.photos.filter(p => p.activity_id === activity_id).length + 1;
-      }
+      calculatedSortOrder = db.photos.filter(p => p.activity_id === activity_id).length + 1;
     }
 
     const newPhoto: Photo = {
@@ -778,14 +638,8 @@ app.post("/api/admin/photos", requireAdmin, async (req, res) => {
       updated_at: new Date().toISOString()
     };
 
-    if (useSupabase && supabase) {
-      const { error } = await supabase.from("photos").insert(newPhoto);
-      if (error) throw error;
-    } else {
-      const db = readDB();
-      db.photos.push(newPhoto);
-      writeDB(db);
-    }
+    db.photos.push(newPhoto);
+    writeDB(db);
 
     res.json({ success: true, photo: newPhoto });
   } catch (err: any) {
@@ -818,25 +672,14 @@ app.put("/api/admin/photos/:id", requireAdmin, async (req, res) => {
     if (sort_order !== undefined) updates.sort_order = Number(sort_order);
     if (activity_id !== undefined) updates.activity_id = activity_id;
 
-    if (useSupabase && supabase) {
-      const { data, error } = await supabase
-        .from("photos")
-        .update(updates)
-        .eq("id", id)
-        .select()
-        .single();
-      if (error) throw error;
-      res.json({ success: true, photo: data });
-    } else {
-      const db = readDB();
-      const photoIndex = db.photos.findIndex(p => p.id === id);
-      if (photoIndex === -1) {
-        return res.status(404).json({ error: "Photo not found" });
-      }
-      db.photos[photoIndex] = { ...db.photos[photoIndex], ...updates };
-      writeDB(db);
-      res.json({ success: true, photo: db.photos[photoIndex] });
+    const db = readDB();
+    const photoIndex = db.photos.findIndex(p => p.id === id);
+    if (photoIndex === -1) {
+      return res.status(404).json({ error: "Photo not found" });
     }
+    db.photos[photoIndex] = { ...db.photos[photoIndex], ...updates };
+    writeDB(db);
+    res.json({ success: true, photo: db.photos[photoIndex] });
   } catch (err: any) {
     console.error("Error in PUT /api/admin/photos/:id:", err);
     res.status(500).json({ error: "Gagal memperbarui foto." });
@@ -848,18 +691,13 @@ app.delete("/api/admin/photos/:id", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (useSupabase && supabase) {
-      const { error } = await supabase.from("photos").delete().eq("id", id);
-      if (error) throw error;
-    } else {
-      const db = readDB();
-      const photoIndex = db.photos.findIndex(p => p.id === id);
-      if (photoIndex === -1) {
-        return res.status(404).json({ error: "Photo not found" });
-      }
-      db.photos.splice(photoIndex, 1);
-      writeDB(db);
+    const db = readDB();
+    const photoIndex = db.photos.findIndex(p => p.id === id);
+    if (photoIndex === -1) {
+      return res.status(404).json({ error: "Photo not found" });
     }
+    db.photos.splice(photoIndex, 1);
+    writeDB(db);
 
     res.json({ success: true, message: "Foto berhasil dihapus." });
   } catch (err: any) {
@@ -877,24 +715,15 @@ app.post("/api/admin/photos/reorder", requireAdmin, async (req, res) => {
       return res.status(400).json({ error: "Invalid orders array" });
     }
 
-    if (useSupabase && supabase) {
-      for (const order of orders) {
-        await supabase
-          .from("photos")
-          .update({ sort_order: order.sort_order, updated_at: new Date().toISOString() })
-          .eq("id", order.id);
+    const db = readDB();
+    orders.forEach((order: { id: string; sort_order: number }) => {
+      const photo = db.photos.find(p => p.id === order.id);
+      if (photo) {
+        photo.sort_order = order.sort_order;
+        photo.updated_at = new Date().toISOString();
       }
-    } else {
-      const db = readDB();
-      orders.forEach((order: { id: string; sort_order: number }) => {
-        const photo = db.photos.find(p => p.id === order.id);
-        if (photo) {
-          photo.sort_order = order.sort_order;
-          photo.updated_at = new Date().toISOString();
-        }
-      });
-      writeDB(db);
-    }
+    });
+    writeDB(db);
 
     res.json({ success: true, message: "Urutan foto berhasil diperbarui." });
   } catch (err: any) {
@@ -932,27 +761,16 @@ app.put("/api/admin/settings", requireAdmin, async (req, res) => {
       updates.sections = finalSections;
     }
 
-    // Delete virtual keys before Supabase upsert to avoid column schema errors
     delete updates.enable_kegiatan_page;
     delete updates.enable_foto_terbaru_page;
 
-    if (useSupabase && supabase) {
-      const { data, error } = await supabase
-        .from("site_settings")
-        .upsert({ id: "default", ...updates })
-        .select()
-        .single();
-      if (error) throw error;
-      res.json({ success: true, settings: migrateSettings(data) });
-    } else {
-      const db = readDB();
-      db.settings = {
-        ...db.settings,
-        ...updates
-      };
-      writeDB(db);
-      res.json({ success: true, settings: db.settings });
-    }
+    const db = readDB();
+    db.settings = {
+      ...db.settings,
+      ...updates
+    };
+    writeDB(db);
+    res.json({ success: true, settings: db.settings });
   } catch (err: any) {
     console.error("Error in PUT /api/admin/settings:", err);
     res.status(500).json({ error: "Gagal menyimpan pengaturan." });
@@ -970,23 +788,13 @@ app.post("/api/admin/settings/reset-layout", requireAdmin, async (req, res) => {
       updated_at: new Date().toISOString()
     };
 
-    if (useSupabase && supabase) {
-      const { data, error } = await supabase
-        .from("site_settings")
-        .upsert({ id: "default", ...updates })
-        .select()
-        .single();
-      if (error) throw error;
-      res.json({ success: true, settings: migrateSettings(data) });
-    } else {
-      const db = readDB();
-      db.settings.sections = defaultSecs;
-      db.settings.hero_source = "auto";
-      db.settings.accent_color = "#f6c374";
-      db.settings.updated_at = new Date().toISOString();
-      writeDB(db);
-      res.json({ success: true, settings: db.settings });
-    }
+    const db = readDB();
+    db.settings.sections = defaultSecs;
+    db.settings.hero_source = "auto";
+    db.settings.accent_color = "#f6c374";
+    db.settings.updated_at = new Date().toISOString();
+    writeDB(db);
+    res.json({ success: true, settings: db.settings });
   } catch (err: any) {
     console.error("Error in POST /api/admin/settings/reset-layout:", err);
     res.status(500).json({ error: "Gagal mengatur ulang tata letak." });
@@ -996,17 +804,8 @@ app.post("/api/admin/settings/reset-layout", requireAdmin, async (req, res) => {
 // GET Medias
 app.get("/api/admin/medias", requireAdmin, async (req, res) => {
   try {
-    if (useSupabase && supabase) {
-      const { data, error } = await supabase
-        .from("media")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      res.json({ success: true, medias: data || [] });
-    } else {
-      const db = readDB();
-      res.json({ success: true, medias: db.medias || [] });
-    }
+    const db = readDB();
+    res.json({ success: true, medias: db.medias || [] });
   } catch (err: any) {
     console.error("Error in GET /api/admin/medias:", err);
     res.status(500).json({ error: "Gagal memuat daftar media." });
@@ -1030,15 +829,10 @@ app.post("/api/admin/medias", requireAdmin, async (req, res) => {
       created_at: new Date().toISOString()
     };
 
-    if (useSupabase && supabase) {
-      const { error } = await supabase.from("media").insert(newMedia);
-      if (error) throw error;
-    } else {
-      const db = readDB();
-      if (!db.medias) db.medias = [];
-      db.medias.push(newMedia);
-      writeDB(db);
-    }
+    const db = readDB();
+    if (!db.medias) db.medias = [];
+    db.medias.push(newMedia);
+    writeDB(db);
 
     res.json({ success: true, media: newMedia });
   } catch (err: any) {
@@ -1052,19 +846,14 @@ app.delete("/api/admin/medias/:id", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (useSupabase && supabase) {
-      const { error } = await supabase.from("media").delete().eq("id", id);
-      if (error) throw error;
-    } else {
-      const db = readDB();
-      if (!db.medias) db.medias = [];
-      const index = db.medias.findIndex(m => m.id === id);
-      if (index === -1) {
-        return res.status(404).json({ error: "Media tidak ditemukan." });
-      }
-      db.medias.splice(index, 1);
-      writeDB(db);
+    const db = readDB();
+    if (!db.medias) db.medias = [];
+    const index = db.medias.findIndex(m => m.id === id);
+    if (index === -1) {
+      return res.status(404).json({ error: "Media tidak ditemukan." });
     }
+    db.medias.splice(index, 1);
+    writeDB(db);
 
     res.json({ success: true, message: "Media berhasil dihapus." });
   } catch (err: any) {
@@ -1115,47 +904,10 @@ app.post("/api/admin/upload", requireAdmin, async (req, res) => {
     const cleanFilename = `${Date.now()}-${filename.replace(/[^a-zA-Z0-9.\-_]/g, "")}${extension ? "" : extension}`;
     let finalUrl = "";
 
-    if (useSupabase && supabase) {
-      const buffer = Buffer.from(base64Data, "base64");
-      const bucketName = detectedType === "video" ? "gallery-videos" : "gallery-images";
-      
-      // Try uploading to targeted bucket
-      let { data: uploadData, error: uploadError } = await supabase.storage
-        .from(bucketName)
-        .upload(cleanFilename, buffer, {
-          contentType: mimeType,
-          upsert: true
-        });
-
-      if (uploadError) {
-        console.warn(`Bucket '${bucketName}' upload failed (it might not exist), falling back to 'gallery':`, uploadError);
-        const { data: fbData, error: fbError } = await supabase.storage
-          .from("gallery")
-          .upload(cleanFilename, buffer, {
-            contentType: mimeType,
-            upsert: true
-          });
-        
-        if (fbError) {
-          throw fbError;
-        }
-        
-        const { data: { publicUrl } } = supabase.storage
-          .from("gallery")
-          .getPublicUrl(cleanFilename);
-        finalUrl = publicUrl;
-      } else {
-        const { data: { publicUrl } } = supabase.storage
-          .from(bucketName)
-          .getPublicUrl(cleanFilename);
-        finalUrl = publicUrl;
-      }
-    } else {
-      // Local fallback
-      const filePath = path.join(UPLOADS_DIR, cleanFilename);
-      fs.writeFileSync(filePath, Buffer.from(base64Data, "base64"));
-      finalUrl = `/uploads/${cleanFilename}`;
-    }
+    // Local-only storage
+    const filePath = path.join(UPLOADS_DIR, cleanFilename);
+    fs.writeFileSync(filePath, Buffer.from(base64Data, "base64"));
+    finalUrl = `/uploads/${cleanFilename}`;
 
     // Auto register to media library
     const newMedia: MediaItem = {
@@ -1166,20 +918,15 @@ app.post("/api/admin/upload", requireAdmin, async (req, res) => {
       created_at: new Date().toISOString()
     };
 
-    if (useSupabase && supabase) {
-      const { error } = await supabase.from("media").insert(newMedia);
-      if (error) throw error;
-    } else {
-      const db = readDB();
-      if (!db.medias) db.medias = [];
-      db.medias.push(newMedia);
-      writeDB(db);
-    }
+    const db = readDB();
+    if (!db.medias) db.medias = [];
+    db.medias.push(newMedia);
+    writeDB(db);
 
     res.json({ success: true, url: finalUrl, media: newMedia });
   } catch (error: any) {
     console.error("Upload error", error);
-    res.status(500).json({ error: "Upload gagal. Periksa ukuran, format, atau setup storage bucket Anda." });
+    res.status(500).json({ error: "Upload gagal. Periksa ukuran atau format berkas." });
   }
 });
 
