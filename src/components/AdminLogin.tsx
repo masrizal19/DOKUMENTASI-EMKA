@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { motion } from "motion/react";
 import { Lock, ArrowLeft, Loader2, Eye, EyeOff, User } from "lucide-react";
-import { supabase } from "../lib/supabase.js";
+import { performAdminLogin } from "../lib/adminAuth.js";
 
 interface AdminLoginProps {
   onLoginSuccess: (token: string) => void;
@@ -23,89 +23,19 @@ export default function AdminLogin({ onLoginSuccess, onBackToHome, onShowToast }
     setIsLoading(true);
     setIsError(false);
 
-    let isTimeout = false;
-    let timeoutId: any;
-    const timeoutPromise = new Promise<null>((_, reject) => {
-      timeoutId = setTimeout(() => {
-        isTimeout = true;
-        reject(new Error("TIMEOUT"));
-      }, 7000);
-    });
-
     try {
-      let authSuccessful = false;
-      let isExplicitInvalid = false;
-      let serverError = false;
+      const res = await performAdminLogin(username, pin);
 
-      // 1. Primary Method: Try Supabase Edge Function
-      try {
-        const edgeFunctionPromise = supabase.functions.invoke("admin-login", {
-          body: {
-            username: username.trim(),
-            pin: pin
-          }
-        });
-
-        const edgeResponse = await Promise.race([edgeFunctionPromise, timeoutPromise]);
-
-        if (edgeResponse && edgeResponse.data) {
-          const result = edgeResponse.data;
-          if (result.authenticated === true || result.success === true) {
-            authSuccessful = true;
-          } else if (result.authenticated === false || result.success === false) {
-            isExplicitInvalid = true;
-          }
-        } else if (edgeResponse && edgeResponse.error) {
-          // If edge function is not deployed or unreachable, we fallback to RPC
-          serverError = true;
-        }
-      } catch (edgeErr: any) {
-        if (edgeErr?.message === "TIMEOUT") throw edgeErr;
-        serverError = true;
-      }
-
-      // 2. Secondary Method: If Edge Function was not reachable, fallback to PostgreSQL RPC
-      if (!authSuccessful && !isExplicitInvalid && serverError) {
-        try {
-          const rpcPromise = supabase.rpc("verify_admin_pin", {
-            p_username: username.trim(),
-            p_pin: pin
-          });
-
-          const rpcResponse = await Promise.race([rpcPromise, timeoutPromise]);
-
-          if (rpcResponse && typeof rpcResponse.data === "boolean") {
-            if (rpcResponse.data === true) {
-              authSuccessful = true;
-            } else {
-              isExplicitInvalid = true;
-            }
-          }
-        } catch (rpcErr: any) {
-          if (rpcErr?.message === "TIMEOUT") throw rpcErr;
-        }
-      }
-
-      clearTimeout(timeoutId);
-
-      if (authSuccessful) {
+      if (res.success && res.session?.access_token) {
         onShowToast("Login Berhasil! Selamat datang di dashboard admin.", "success");
-        onLoginSuccess("emka_admin_session_active");
-      } else if (isExplicitInvalid) {
-        setIsError(true);
-        onShowToast("Username atau PIN salah.", "error");
+        onLoginSuccess(res.session.access_token);
       } else {
         setIsError(true);
-        onShowToast("Server sedang tidak dapat dihubungi. Silakan coba lagi.", "error");
+        onShowToast(res.error || "Username atau PIN (Password) salah.", "error");
       }
     } catch (err: any) {
-      clearTimeout(timeoutId);
       setIsError(true);
-      if (isTimeout || err?.message === "TIMEOUT") {
-        onShowToast("Koneksi berakhir (timeout). Silakan coba lagi.", "error");
-      } else {
-        onShowToast("Server sedang tidak dapat dihubungi. Silakan coba lagi.", "error");
-      }
+      onShowToast(err?.message || "Username atau PIN salah.", "error");
     } finally {
       setIsLoading(false);
     }
@@ -194,12 +124,12 @@ export default function AdminLogin({ onLoginSuccess, onBackToHome, onShowToast }
                   value={pin}
                   onChange={(e) => {
                     const val = e.target.value;
-                    if (/^\d*$/.test(val) && val.length <= 4) {
+                    if (true) {
                       setPin(val);
                       if (isError) setIsError(false);
                     }
                   }}
-                  maxLength={4}
+                  
                   placeholder="Masukkan PIN"
                   className="w-full bg-[#17130e] border border-[#4f4538]/30 rounded-sm py-3 pl-4 pr-12 font-body text-sm text-[#eae1d8] placeholder-[#4f4538] focus:outline-none focus:border-[#f6c374] transition-colors tracking-widest"
                 />

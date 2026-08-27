@@ -10,6 +10,37 @@ interface HeroCarouselProps {
   settings?: Settings | null;
 }
 
+const getBgTransitionClasses = (isActive: boolean, mode: string, offset: number) => {
+  const base = "absolute inset-0 w-full h-full transition-all duration-[1200ms] ease-[cubic-bezier(0.22,1,0.36,1)]";
+  
+  switch(mode) {
+    case "Fade":
+      return `${base} ${isActive ? "opacity-100 z-10" : "opacity-0 z-0"}`;
+    case "Crossfade":
+      return `${base} ${isActive ? "opacity-100 z-10" : "opacity-0 z-0"}`;
+    case "Slide": 
+      return `${base} ${isActive ? "opacity-100 translate-x-0 z-10" : (offset > 0 ? "opacity-0 translate-x-full z-0" : "opacity-0 -translate-x-full z-0")}`;
+    case "Slide Up":
+      return `${base} ${isActive ? "opacity-100 translate-y-0 z-10" : "opacity-0 translate-y-full z-0"}`;
+    case "Slide Down":
+      return `${base} ${isActive ? "opacity-100 translate-y-0 z-10" : "opacity-0 -translate-y-full z-0"}`;
+    case "Zoom":
+      return `${base} ${isActive ? "opacity-100 scale-100 z-10" : "opacity-0 scale-50 z-0"}`;
+    case "Zoom + Fade":
+      return `${base} ${isActive ? "opacity-100 scale-100 z-10" : "opacity-0 scale-105 z-0"}`;
+    case "Blur + Fade":
+      return `${base} ${isActive ? "opacity-100 blur-none z-10" : "opacity-0 blur-xl z-0"}`;
+    case "Ken Burns":
+      return `${base} ${isActive ? "opacity-100 scale-110 z-10 duration-[20000ms] ease-linear" : "opacity-0 scale-100 z-0 duration-[1200ms]"}`;
+    case "Parallax":
+      return `${base} ${isActive ? "opacity-100 translate-x-0 z-10" : (offset > 0 ? "opacity-0 translate-x-[20%] z-0" : "opacity-0 -translate-x-[20%] z-0")}`;
+    case "Cinematic":
+      return `${base} ${isActive ? "opacity-100 scale-100 rotate-0 z-10 duration-[2000ms]" : "opacity-0 scale-110 rotate-1 z-0"}`;
+    default:
+      return `${base} ${isActive ? "opacity-100 scale-100 z-10" : "opacity-0 scale-105 z-0"}`;
+  }
+};
+
 export default function HeroCarousel({ activities, onViewActivity, settings }: HeroCarouselProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
@@ -17,6 +48,12 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
   const [videoLoaded, setVideoLoaded] = useState<{ [key: string]: boolean }>({});
   const videoRefs = useRef<{ [key: string]: HTMLVideoElement | null }>({});
   const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const durationSec = settings?.slideshow_duration ?? 5;
+  const durationMs = Math.max(2000, Math.min(30000, durationSec * 1000));
+  const blurPercent = settings?.slideshow_blur ?? 35;
+  const blurPx = Math.round((blurPercent / 100) * 12 * 10) / 10;
+  const transitionMode = settings?.slideshow_transition ?? "Fade";
 
   // Determine slide items based on Settings
   let activeActivities: Activity[] = [];
@@ -67,7 +104,12 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
   // 2. Play active background video
   useEffect(() => {
     if (currentActivity && videoRefs.current[currentActivity.id]) {
-      videoRefs.current[currentActivity.id]?.play().catch(() => {
+      const vid = videoRefs.current[currentActivity.id]!;
+      const start = currentActivity.background_video_start || 0;
+      if (vid.currentTime < start || vid.currentTime === 0) {
+        vid.currentTime = start;
+      }
+      vid.play().catch(() => {
         // Safe play fail (browser auto-block fallback)
       });
     }
@@ -89,19 +131,19 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
       clearInterval(autoplayTimerRef.current);
     }
     
-    // Autoplay transition interval: 6 seconds
+    // Autoplay transition interval based on settings
     autoplayTimerRef.current = setInterval(() => {
       if (!isHovered && totalSlides > 1) {
         handleNext();
       }
-    }, 6000);
+    }, durationMs);
 
     return () => {
       if (autoplayTimerRef.current) {
         clearInterval(autoplayTimerRef.current);
       }
     };
-  }, [currentIndex, isHovered, totalSlides]);
+  }, [currentIndex, isHovered, totalSlides, durationMs]);
 
   // 4. Keyboard Navigation: Arrow Left/Right
   useEffect(() => {
@@ -264,18 +306,18 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
           const isActive = index === currentIndex;
           const showVideo = act.background_video && videoLoaded[act.id];
 
+          const offset = getOffset(index);
           return (
             <div
               key={`bg-${act.id}`}
-              className={`absolute inset-0 w-full h-full transition-all duration-[1200ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
-                isActive ? "opacity-100 scale-100 z-10" : "opacity-0 scale-105 z-0"
-              }`}
+              className={getBgTransitionClasses(isActive, transitionMode, offset)}
             >
               {/* Cover Image fallback */}
               <img
                 src={act.cover_image}
                 alt=""
-                className="w-full h-full object-cover filter brightness-[0.22] blur-[15px] transform scale-[1.08]"
+                className="w-full h-full object-cover filter brightness-[0.22] transform scale-[1.08]"
+                style={{ filter: `brightness(0.22) blur(${blurPx}px)` }}
                 referrerPolicy="no-referrer"
               />
 
@@ -289,13 +331,45 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
                   poster={act.cover_image}
                   autoPlay
                   muted
-                  loop
                   playsInline
+                  onLoadedMetadata={(e) => {
+                    const start = act.background_video_start || 0;
+                    if (start > 0) {
+                      e.currentTarget.currentTime = start;
+                    }
+                  }}
+                  onTimeUpdate={(e) => {
+                    const start = act.background_video_start || 0;
+                    const end = act.background_video_end;
+                    const loop = act.background_video_loop !== false;
+                    
+                    if (start > 0 && e.currentTarget.currentTime < start) {
+                      e.currentTarget.currentTime = start;
+                    }
+
+                    if (end && end > start && e.currentTarget.currentTime >= end) {
+                      if (loop) {
+                        e.currentTarget.currentTime = start;
+                        e.currentTarget.play().catch(() => {});
+                      } else {
+                        e.currentTarget.pause();
+                      }
+                    }
+                  }}
+                  onEnded={(e) => {
+                     const start = act.background_video_start || 0;
+                     const loop = act.background_video_loop !== false;
+                     if (loop) {
+                        e.currentTarget.currentTime = start;
+                        e.currentTarget.play().catch(() => {});
+                     }
+                  }}
                   onPlay={() => setVideoLoaded((prev) => ({ ...prev, [act.id]: true }))}
                   onError={() => setVideoLoaded((prev) => ({ ...prev, [act.id]: false }))}
                   className={`absolute inset-0 w-full h-full object-cover filter brightness-[0.22] blur-[15px] transition-opacity duration-1000 ${
                     showVideo ? "opacity-100" : "opacity-0"
                   }`}
+                  style={{ filter: `brightness(0.22) blur(${blurPx}px)` }}
                 />
               )}
             </div>

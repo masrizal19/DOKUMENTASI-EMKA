@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Activity, Photo, Settings, DashboardStats } from "../types.js";
 import {
   LayoutDashboard,
@@ -22,20 +22,29 @@ import {
 } from "lucide-react";
 import { supabase } from "../lib/supabase.js";
 import { fallbackData } from "../lib/fallbackData.js";
+import { getAdminSession } from "../lib/adminAuth.js";
+import { ImageCropModal } from "./ImageCropModal.tsx";
+import VideoTrimmer from "./VideoTrimmer.tsx";
+import { getStorageObjectPath, isValidUUID } from "../lib/storage.js";
 
 interface AdminDashboardProps {
   token: string;
   onLogout: () => void;
   onShowToast: (message: string, type: "success" | "error") => void;
+  onRefreshData?: () => void;
 }
 
-export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDashboardProps) {
+export default function AdminDashboard({ token, onLogout, onShowToast, onRefreshData }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<"dashboard" | "activities" | "photos" | "settings">("dashboard");
   const [settingsSubTab, setSettingsSubTab] = useState<"school" | "hero" | "about" | "vision" | "sections">("school");
   const [activities, setActivities] = useState<Activity[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Delete modal state
+  const [activityToDelete, setActivityToDelete] = useState<Activity | null>(null);
+  const [isDeletingActivity, setIsDeletingActivity] = useState<boolean>(false);
 
   // Form states
   const [isActivityFormOpen, setIsActivityFormOpen] = useState(false);
@@ -45,11 +54,33 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
     category: "",
     date: "",
     description: "",
-    cover_image: "",
-    background_video: "",
     google_drive_url: "",
     status: "draft" as "published" | "draft"
   });
+
+  // Local file preview and upload states
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string>("");
+  const [existingCoverUrl, setExistingCoverUrl] = useState<string>("");
+  const [isCropModalOpen, setIsCropModalOpen] = useState(false);
+  const [rawImageFileForCrop, setRawImageFileForCrop] = useState<File | null>(null);
+  const [cropFileInfo, setCropFileInfo] = useState<{ width: number; height: number; sizeFormatted: string } | null>(null);
+
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoPreview, setVideoPreview] = useState<string>("");
+  const [existingVideoUrl, setExistingVideoUrl] = useState<string>("");
+
+  const [videoTrimStart, setVideoTrimStart] = useState<number>(0);
+  const [videoTrimEnd, setVideoTrimEnd] = useState<number | null>(null);
+  const [confirmedVideoStart, setConfirmedVideoStart] = useState<number>(0);
+  const [confirmedVideoEnd, setConfirmedVideoEnd] = useState<number | null>(null);
+  const [isTrimConfirmed, setIsTrimConfirmed] = useState<boolean>(true);
+  const [videoTrimLoop, setVideoTrimLoop] = useState<boolean>(true);
+  const [videoDuration, setVideoDuration] = useState<number>(0);
+  const [previewTrimMode, setPreviewTrimMode] = useState<boolean>(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const [uploadStatusText, setUploadStatusText] = useState<string>("");
 
   const [isPhotoFormOpen, setIsPhotoFormOpen] = useState(false);
   const [editingPhoto, setEditingPhoto] = useState<Photo | null>(null);
@@ -59,6 +90,8 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
     image_url: "",
     sort_order: 1
   });
+
+  const [settingsId, setSettingsId] = useState<string>("5c863138-dc2a-4d34-ad38-b6cc6cfcc6a7");
 
   const [settingsFormData, setSettingsFormData] = useState<Settings>({
     site_name: "",
@@ -92,7 +125,10 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
     hero_activity_id: "",
     sections: [],
     enable_kegiatan_page: true,
-    enable_foto_terbaru_page: true
+    enable_foto_terbaru_page: true,
+    slideshow_duration: 5,
+    slideshow_transition: "Fade",
+    slideshow_blur: 35
   });
 
   const [uploadLoading, setUploadLoading] = useState(false);
@@ -105,42 +141,56 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
       // Fetch site settings
       const { data: settingsData } = await supabase
         .from("site_settings")
-        .select("*")
-        .eq("id", "default")
+        .select("id, school_name, address, email, phone, whatsapp, about, vision, mission, about_image, updated_at")
+        .limit(1)
         .maybeSingle();
 
       let activeSet: Settings | null = null;
       if (settingsData) {
-        activeSet = settingsData.raw_settings ? (settingsData.raw_settings as Settings) : {
-          site_name: settingsData.site_name || "GALERI EMKA",
-          logo: settingsData.logo || "",
-          whatsapp: settingsData.whatsapp || "628123456789",
-          accent_color: settingsData.accent_color || "#f6c374",
-          updated_at: settingsData.updated_at || new Date().toISOString(),
-          school_name: settingsData.school_name || "SMK Multi Karya",
-          address: settingsData.address || "Jl. SMK Multi Karya No. 45",
-          city: settingsData.city || "Medan",
-          province: settingsData.province || "Sumatera Utara",
-          country: settingsData.country || "Indonesia",
-          email: settingsData.email || "info@multikarya.sch.id",
-          phone: settingsData.phone || "(061) 1234567",
-          tata_usaha: settingsData.tata_usaha || "Senin - Sabtu",
-          whatsapp_title: settingsData.whatsapp_title || "Narahubung Cepat",
-          whatsapp_description: settingsData.whatsapp_description || "Hubungi admin secara langsung melalui WhatsApp.",
-          about_title: settingsData.about_title || "Mengabadikan Jejak, Mengukir Kenangan Sinematik",
-          about_desc1: settingsData.about_desc1 || "Galeri EMKA adalah wadah dokumentasi visual.",
-          about_desc2: settingsData.about_desc2 || "Kami tidak hanya mengambil foto.",
-          about_photo: settingsData.about_photo || "",
-          vision_title: settingsData.vision_title || "Visi & Seni Visual",
-          vision_content: settingsData.vision_content || "Menjadi pusat dokumentasi visual sekolah.",
-          missions: settingsData.missions || [],
-          hero_label: settingsData.hero_label || "DOKUMENTASI SINEMATIK",
-          hero_title: settingsData.hero_title || "GALERI EMKA",
-          hero_description: settingsData.hero_description || "Elevating School Memories into Fine-Art Archives.",
-          hero_image: settingsData.hero_image || "",
-          hero_video: settingsData.hero_video || "",
-          hero_source: settingsData.hero_source || "auto",
-          sections: settingsData.sections || []
+        setSettingsId(settingsData.id);
+        let raw: any = {};
+        if (settingsData.about_image) {
+          try {
+            raw = JSON.parse(settingsData.about_image);
+          } catch (e) {
+            console.error("Failed to parse settings JSON from about_image:", e);
+          }
+        }
+        activeSet = {
+          site_name: raw.site_name || "GALERI EMKA",
+          logo: raw.logo || "",
+          whatsapp: settingsData.whatsapp || raw.whatsapp || "628123456789",
+          accent_color: raw.accent_color || "#f6c374",
+          updated_at: settingsData.updated_at || raw.updated_at || new Date().toISOString(),
+          school_name: settingsData.school_name || raw.school_name || "SMK Multi Karya",
+          address: settingsData.address || raw.address || "Jl. SMK Multi Karya No. 45",
+          city: raw.city || "Medan",
+          province: raw.province || "Sumatera Utara",
+          country: raw.country || "Indonesia",
+          email: settingsData.email || raw.email || "info@multikarya.sch.id",
+          phone: settingsData.phone || raw.phone || "(061) 1234567",
+          tata_usaha: raw.tata_usaha || "Senin - Sabtu",
+          whatsapp_title: raw.whatsapp_title || "Narahubung Cepat",
+          whatsapp_description: raw.whatsapp_description || "Hubungi admin secara langsung melalui WhatsApp.",
+          about_title: raw.about_title || "Mengabadikan Jejak, Mengukir Kenangan Sinematik",
+          about_desc1: settingsData.about || raw.about_desc1 || "Galeri EMKA adalah wadah dokumentasi visual.",
+          about_desc2: raw.about_desc2 || "Kami tidak hanya mengambil foto.",
+          about_photo: raw.about_photo || "",
+          vision_title: settingsData.vision || raw.vision_title || "Visi & Seni Visual",
+          vision_content: raw.vision_content || "Menjadi pusat dokumentasi visual sekolah.",
+          missions: (settingsData.mission ? settingsData.mission.split("\n") : null) || raw.missions || [],
+          hero_label: raw.hero_label || "DOKUMENTASI SINEMATIK",
+          hero_title: raw.hero_title || "GALERI EMKA",
+          hero_description: raw.hero_description || "Elevating School Memories into Fine-Art Archives.",
+          hero_image: raw.hero_image || "",
+          hero_video: raw.hero_video || "",
+          hero_source: raw.hero_source || "auto",
+          sections: raw.sections || [],
+          enable_kegiatan_page: raw.enable_kegiatan_page ?? true,
+          enable_foto_terbaru_page: raw.enable_foto_terbaru_page ?? true,
+          slideshow_duration: raw.slideshow_duration ?? 5,
+          slideshow_transition: raw.slideshow_transition ?? "Fade",
+          slideshow_blur: raw.slideshow_blur ?? 35
         };
       }
 
@@ -187,21 +237,14 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
         }));
       }
 
-      // Fallback
-      if (mappedActivities.length === 0 && mappedPhotos.length === 0 && !activeSet) {
-        setActivities((fallbackData.activities || []) as Activity[]);
-        setPhotos((fallbackData.photos || []) as Photo[]);
-        setSettings((fallbackData.settings || null) as Settings | null);
-      } else {
-        setActivities(mappedActivities);
-        setPhotos(mappedPhotos);
-        if (activeSet) {
-          setSettings(activeSet);
-          setSettingsFormData(activeSet);
-        } else if (fallbackData.settings) {
-          setSettings(fallbackData.settings as Settings);
-          setSettingsFormData(fallbackData.settings as Settings);
-        }
+      setActivities(mappedActivities);
+      setPhotos(mappedPhotos);
+      if (activeSet) {
+        setSettings(activeSet);
+        setSettingsFormData(activeSet);
+      } else if (fallbackData.settings) {
+        setSettings(fallbackData.settings as Settings);
+        setSettingsFormData(fallbackData.settings as Settings);
       }
     } catch (err) {
       onShowToast("Kesalahan saat menyinkronkan data dengan Supabase.", "error");
@@ -214,55 +257,127 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
     fetchData();
   }, [token]);
 
-  // Handle File upload using Supabase Storage with local Base64 fallback
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetField: "cover_image" | "background_video" | "photo_url") => {
+  // Validation helpers
+  const validateImageFile = (file: File): string | null => {
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
+    if (!validTypes.includes(file.type)) {
+      return "Format file gambar tidak didukung. Gunakan JPG, PNG, WEBP, GIF, atau AVIF.";
+    }
+    const maxSize = 100 * 1024 * 1024; // 100 MB as requested
+    if (file.size > maxSize) {
+      return "Ukuran gambar terlalu besar. Maksimal 100 MB.";
+    }
+    return null;
+  };
+
+  const validateVideoFile = (file: File): string | null => {
+    const validTypes = ['video/mp4', 'video/webm', 'video/quicktime', 'video/mov'];
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    const validExts = ['mp4', 'webm', 'mov'];
+    if (!validTypes.includes(file.type) && (!ext || !validExts.includes(ext))) {
+      return "Format file video tidak didukung. Gunakan MP4, WEBM, atau MOV.";
+    }
+    const maxSize = 100 * 1024 * 1024; // 100 MB
+    if (file.size > maxSize) {
+      return "Ukuran video terlalu besar. Maksimal 100 MB.";
+    }
+    return null;
+  };
+
+  // Supabase Storage upload helper with true error handling, session debugging, and YYYY folders
+  const uploadFileToSupabase = async (file: File, folder: 'images' | 'videos'): Promise<string> => {
+    const year = new Date().getFullYear();
+    const fileExt = file.name.split('.').pop() || (folder === 'images' ? 'jpg' : 'mp4');
+    const uniqueId = Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+    const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const filePath = `${folder}/${year}/${uniqueId}-${safeName}`;
+
+    // Debug session
+    const { data: { session } } = await supabase.auth.getSession();
+    console.log('[SUPABASE SESSION]', session);
+
+    console.log('[UPLOAD START]', {
+      bucket: 'gallery-media',
+      path: filePath,
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+      hasSession: !!session
+    });
+
+    const { data, error } = await supabase.storage
+      .from('gallery-media')
+      .upload(filePath, file, { 
+        contentType: file.type,
+        cacheControl: '3600', 
+        upsert: false 
+      });
+
+    if (error) {
+      console.error('[MEDIA UPLOAD ERROR]', {
+        message: error.message,
+        name: error.name,
+        statusCode: (error as any).statusCode || (error as any).status,
+        error
+      });
+
+      const statusCode = (error as any).statusCode || (error as any).status;
+      let userMessage = error.message;
+
+      if (statusCode === 403 || error.message?.includes('row-level security') || error.message?.includes('Policy')) {
+        userMessage = "Masalah permission Storage (403 Unauthorized / RLS policy error). Pastikan policy Supabase Storage 'gallery-media' sudah diatur.";
+      } else if (statusCode === 404 || error.message?.includes('Bucket not found')) {
+        userMessage = "Bucket 'gallery-media' tidak ditemukan di Supabase Storage.";
+      } else if (statusCode === 409) {
+        userMessage = "File sudah ada di penyimpanan.";
+      } else if (statusCode === 413 || error.message?.includes('Entity Too Large')) {
+        userMessage = "Payload terlalu besar (maksimal 100 MB).";
+      } else if (statusCode >= 500) {
+        userMessage = "Server penyimpanan mengalami masalah (500).";
+      } else if (!navigator.onLine) {
+        userMessage = "Request upload gagal (Tidak ada koneksi internet).";
+      } else {
+        userMessage = `Gagal mengunggah media: ${error.message}`;
+      }
+
+      throw new Error(userMessage);
+    }
+
+    console.log('[UPLOAD SUCCESS]', data);
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('gallery-media')
+      .getPublicUrl(filePath);
+
+    return publicUrl;
+  };
+
+  // Cleanup object URLs on unmount or change
+  useEffect(() => {
+    return () => {
+      if (coverPreview) URL.revokeObjectURL(coverPreview);
+      if (videoPreview) URL.revokeObjectURL(videoPreview);
+    };
+  }, [coverPreview, videoPreview]);
+
+  // Handle File upload for Photo Tab
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetField: "photo_url") => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const err = validateImageFile(file);
+    if (err) {
+      onShowToast(err, "error");
+      return;
+    }
+
     setUploadLoading(true);
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
-      const filePath = `${fileName}`;
-
-      // Try uploading to Supabase Storage bucket 'galeri-emka'
-      const { data, error } = await supabase.storage
-        .from('galeri-emka')
-        .upload(filePath, file, { cacheControl: '3600', upsert: true });
-
-      if (error) {
-        console.warn("Storage upload failed, using Base64 fallback:", error);
-        // Fallback: Read as Base64 Data URL
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64String = reader.result as string;
-          if (targetField === "cover_image") {
-            setActivityFormData(prev => ({ ...prev, cover_image: base64String }));
-          } else if (targetField === "background_video") {
-            setActivityFormData(prev => ({ ...prev, background_video: base64String }));
-          } else if (targetField === "photo_url") {
-            setPhotoFormData(prev => ({ ...prev, image_url: base64String }));
-          }
-          onShowToast("File berhasil dimuat sebagai Data URL.", "success");
-        };
-        reader.readAsDataURL(file);
-      } else {
-        // Get public URL
-        const { data: { publicUrl } } = supabase.storage
-          .from('galeri-emka')
-          .getPublicUrl(filePath);
-
-        if (targetField === "cover_image") {
-          setActivityFormData(prev => ({ ...prev, cover_image: publicUrl }));
-        } else if (targetField === "background_video") {
-          setActivityFormData(prev => ({ ...prev, background_video: publicUrl }));
-        } else if (targetField === "photo_url") {
-          setPhotoFormData(prev => ({ ...prev, image_url: publicUrl }));
-        }
-        onShowToast("File berhasil diunggah ke Supabase Storage.", "success");
-      }
-    } catch (err) {
-      onShowToast("Gagal memproses file.", "error");
+      const publicUrl = await uploadFileToSupabase(file, 'images');
+      setPhotoFormData(prev => ({ ...prev, image_url: publicUrl }));
+      onShowToast("File berhasil diunggah ke Supabase Storage.", "success");
+    } catch (err: any) {
+      onShowToast(err.message || "Gagal memproses file.", "error");
     } finally {
       setUploadLoading(false);
     }
@@ -270,32 +385,62 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
 
   // Activity CRUD
   const handleOpenAddActivity = () => {
+    if (coverPreview) URL.revokeObjectURL(coverPreview);
+    if (videoPreview) URL.revokeObjectURL(videoPreview);
     setEditingActivity(null);
     setActivityFormData({
       title: "",
       category: "Kegiatan Sekolah",
       date: new Date().toISOString().split("T")[0],
       description: "",
-      cover_image: "",
-      background_video: "",
       google_drive_url: "",
       status: "draft"
     });
+    setCoverFile(null);
+    setCoverPreview("");
+    setExistingCoverUrl("");
+    setVideoFile(null);
+    setVideoPreview("");
+    setExistingVideoUrl("");
+    setVideoTrimStart(0);
+    setVideoTrimEnd(null);
+    setConfirmedVideoStart(0);
+    setConfirmedVideoEnd(null);
+    setVideoTrimLoop(true);
+    setIsTrimConfirmed(true);
+    setVideoDuration(0);
+    setPreviewTrimMode(false);
     setIsActivityFormOpen(true);
   };
 
   const handleOpenEditActivity = (act: Activity) => {
+    if (coverPreview) URL.revokeObjectURL(coverPreview);
+    if (videoPreview) URL.revokeObjectURL(videoPreview);
     setEditingActivity(act);
     setActivityFormData({
       title: act.title,
       category: act.category,
       date: act.date,
       description: act.description,
-      cover_image: act.cover_image,
-      background_video: act.background_video || "",
       google_drive_url: act.google_drive_url || "",
       status: act.status
     });
+    setCoverFile(null);
+    setCoverPreview("");
+    setExistingCoverUrl(act.cover_image || "");
+    setVideoFile(null);
+    setVideoPreview("");
+    setExistingVideoUrl(act.background_video || "");
+    const startVal = act.background_video_start ?? 0;
+    const endVal = act.background_video_end ?? null;
+    setVideoTrimStart(startVal);
+    setVideoTrimEnd(endVal);
+    setConfirmedVideoStart(startVal);
+    setConfirmedVideoEnd(endVal);
+    setVideoTrimLoop(act.background_video_loop ?? true);
+    setIsTrimConfirmed(true);
+    setVideoDuration(0);
+    setPreviewTrimMode(false);
     setIsActivityFormOpen(true);
   };
 
@@ -303,6 +448,11 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
     e.preventDefault();
     if (!activityFormData.title) {
       onShowToast("Judul kegiatan wajib diisi.", "error");
+      return;
+    }
+
+    if (!existingCoverUrl && !coverFile) {
+      onShowToast("Foto Utama / Cover wajib diunggah.", "error");
       return;
     }
 
@@ -321,60 +471,241 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
       }
     }
 
+    setUploadLoading(true);
     try {
+      let finalCoverUrl = existingCoverUrl;
+      let finalVideoUrl = existingVideoUrl;
+
+      if (coverFile) {
+        setUploadStatusText("Mengunggah gambar...");
+        finalCoverUrl = await uploadFileToSupabase(coverFile, 'images');
+      }
+
+      if (videoFile) {
+        setUploadStatusText("Mengunggah video...");
+        finalVideoUrl = await uploadFileToSupabase(videoFile, 'videos');
+      }
+
+      setUploadStatusText("Menyimpan data kegiatan...");
       const slug = activityFormData.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-      const activityId = editingActivity ? editingActivity.id : `act-${Date.now()}`;
-      
-      const dbRow = {
-        id: activityId,
-        title: activityFormData.title,
-        slug: slug,
-        category: activityFormData.category,
-        date: activityFormData.date,
-        description: activityFormData.description,
-        cover_image: activityFormData.cover_image,
-        background_video: activityFormData.background_video || null,
-        google_drive_url: activityFormData.google_drive_url || null,
-        published: activityFormData.status === "published",
-        updated_at: new Date().toISOString()
+
+      // 1. Retrieve & Validate Admin Session using official Supabase Auth
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session || !session.user) {
+        onShowToast("Session admin tidak tersedia. Silakan login kembali.", "error");
+        setUploadLoading(false);
+        return;
+      }
+
+      const isValidUUID = (id: string) => {
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+      };
+      const isEditingExisting = editingActivity && isValidUUID(editingActivity.id);
+
+      if (videoFile || existingVideoUrl) {
+        const actualEnd = videoTrimEnd === null ? videoDuration : videoTrimEnd;
+        const isSliderMoved = videoTrimStart > 0 || (actualEnd > 0 && actualEnd < videoDuration);
+        if (isSliderMoved && !isTrimConfirmed) {
+          onShowToast("Silakan konfirmasi trim video terlebih dahulu.", "error");
+          setUploadLoading(false);
+          return;
+        }
+      }
+
+      const finalVideoStart = isTrimConfirmed ? confirmedVideoStart : videoTrimStart;
+      const finalVideoEnd = isTrimConfirmed ? confirmedVideoEnd : videoTrimEnd;
+
+      const payload = {
+        p_id: isEditingExisting ? editingActivity.id : null,
+        p_title: activityFormData.title,
+        p_date: activityFormData.date || null,
+        p_category: activityFormData.category || "Kegiatan Sekolah",
+        p_description: activityFormData.description || "",
+        p_cover_image: finalCoverUrl || "",
+        p_background_image: "",
+        p_background_video: finalVideoUrl || null,
+        p_google_drive_url: activityFormData.google_drive_url || null,
+        p_published: activityFormData.status === "published",
+        p_featured: false,
+        p_sort_order: 0,
+        p_username: "ADMIN",
+        p_pin: "1902",
+        p_background_video_start: finalVideoStart,
+        p_background_video_end: finalVideoEnd,
+        p_background_video_loop: videoTrimLoop
       };
 
-      const { error } = await supabase
-        .from("activities")
-        .upsert(dbRow);
+      const { data: rpcRes, error: rpcErr } = await supabase.rpc("admin_save_activity", payload);
 
-      if (error) {
-        onShowToast(error.message || "Gagal menyimpan kegiatan.", "error");
+      // RPC DEBUG (Step 5)
+      console.log('[RPC DEBUG]', {
+        functionName: 'admin_save_activity',
+        errorMessage: rpcErr?.message || (rpcRes && !rpcRes.success ? rpcRes.message : null),
+        errorCode: rpcErr?.code || null,
+        errorDetails: rpcErr?.details || null,
+        errorHint: rpcErr?.hint || null,
+        success: rpcRes?.success
+      });
+
+      if (rpcErr || (rpcRes && !rpcRes.success)) {
+        const rawErrorMsg = rpcErr?.message || rpcErr?.details || rpcRes?.message || "Kesalahan tidak diketahui.";
+        console.error('[ADMIN SAVE] RPC error:', rpcErr || rpcRes);
+        
+        let displayError = rawErrorMsg;
+        if (rawErrorMsg.includes("JWT expired") || rawErrorMsg.includes("session expired")) {
+          displayError = "Session admin telah berakhir. Silakan login kembali.";
+        } else if (rawErrorMsg.includes("Unauthorized") || rawErrorMsg.includes("Akses ditolak")) {
+          displayError = "Session admin tidak tersedia. Silakan login kembali.";
+        } else if (rawErrorMsg.includes("PIN salah") || rawErrorMsg.includes("Autentikasi admin gagal")) {
+          displayError = "Username atau PIN (Password) salah.";
+        } else if (rawErrorMsg.includes("permission denied") || rawErrorMsg.includes("row-level security") || rpcErr?.code === "42501") {
+          displayError = "Akses database ditolak.";
+        } else if (rawErrorMsg.includes("function not found")) {
+          displayError = "Fungsi database tidak ditemukan (Function not found).";
+        } else if (rawErrorMsg.includes("invalid input syntax for type uuid")) {
+          displayError = "Format ID tidak valid (Invalid UUID).";
+        }
+        
+        onShowToast(`Gagal menyimpan: ${displayError}`, "error");
       } else {
+        console.log('ACTIVITY SAVED SUCCESSFULLY:', rpcRes?.data);
         onShowToast(
-          editingActivity ? "Kegiatan berhasil diperbarui." : "Kegiatan baru berhasil ditambahkan.",
+          isEditingExisting ? "Kegiatan berhasil diperbarui." : "Kegiatan baru berhasil ditambahkan.",
           "success"
         );
+        if (coverPreview) URL.revokeObjectURL(coverPreview);
+        if (videoPreview) URL.revokeObjectURL(videoPreview);
         setIsActivityFormOpen(false);
+        sessionStorage.removeItem("emka_cached_activities");
+        if (onRefreshData) onRefreshData();
         fetchData();
       }
-    } catch (err) {
-      onShowToast("Terjadi kesalahan koneksi.", "error");
+    } catch (err: any) {
+      onShowToast(err.message || "Tidak dapat mengunggah media. Periksa koneksi internet dan coba lagi.", "error");
+    } finally {
+      setUploadLoading(false);
+      setUploadStatusText("");
     }
   };
 
-  const handleDeleteActivity = async (id: string) => {
-    if (!window.confirm("Hapus kegiatan ini beserta seluruh foto di dalamnya? Tindakan ini tidak dapat dibatalkan.")) return;
+  const handleConfirmDeleteActivity = async (activity: Activity) => {
+    if (isDeletingActivity) return;
+    setIsDeletingActivity(true);
 
     try {
-      const { error } = await supabase
-        .from("activities")
-        .delete()
-        .eq("id", id);
+      // 1. Auth session validation using official Supabase Auth
+      const { data: { session } } = await supabase.auth.getSession();
 
-      if (error) {
-        onShowToast(error.message || "Gagal menghapus kegiatan.", "error");
-      } else {
-        onShowToast("Kegiatan berhasil dihapus.", "success");
-        fetchData();
+      if (!session || !session.user) {
+        onShowToast("Session admin tidak tersedia. Silakan login kembali.", "error");
+        setIsDeletingActivity(false);
+        setActivityToDelete(null);
+        return;
       }
-    } catch (err) {
-      onShowToast("Terjadi kesalahan koneksi.", "error");
+
+      // 2. Validate UUID (Requirement B & D)
+      const id = activity.id;
+      if (!isValidUUID(id)) {
+        onShowToast("ID kegiatan tidak valid.", "error");
+        setIsDeletingActivity(false);
+        setActivityToDelete(null);
+        return;
+      }
+
+      // 3. Fetch activity row to get exact media URLs
+      let cover_image = activity.cover_image;
+      let background_image = (activity as any).background_image;
+      let background_video = activity.background_video;
+
+      const { data: fetchRow } = await supabase
+        .from("activities")
+        .select("cover_image, background_image, background_video")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (fetchRow) {
+        cover_image = fetchRow.cover_image || cover_image;
+        background_image = fetchRow.background_image || background_image;
+        background_video = fetchRow.background_video || background_video;
+      }
+
+      // 4. Extract storage object paths for 'gallery-media' bucket (Requirement B & C)
+      const pathsToRemove: string[] = [];
+      const coverPath = getStorageObjectPath(cover_image, 'gallery-media');
+      const bgImagePath = getStorageObjectPath(background_image, 'gallery-media');
+      const bgVideoPath = getStorageObjectPath(background_video, 'gallery-media');
+
+      if (coverPath) pathsToRemove.push(coverPath);
+      if (bgImagePath) pathsToRemove.push(bgImagePath);
+      if (bgVideoPath) pathsToRemove.push(bgVideoPath);
+
+      const uniquePaths = Array.from(new Set(pathsToRemove));
+
+      if (uniquePaths.length > 0) {
+        console.log('[DELETE ACTIVITY] Removing storage files:', uniquePaths);
+        const { error: storageErr } = await supabase.storage
+          .from('gallery-media')
+          .remove(uniquePaths);
+
+        if (storageErr) {
+          console.warn('[DELETE ACTIVITY] Storage deletion warning:', storageErr);
+          // Storage removal warning shouldn't block database deletion
+        }
+      }
+
+      // 5. Delete activity record from database via RPC admin_delete_activity
+      let deleteSuccess = false;
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc("admin_delete_activity", {
+          p_username: "ADMIN",
+          p_pin: "1902",
+          p_id: id
+        });
+        if (!rpcErr && rpcRes && rpcRes.success !== false) {
+          deleteSuccess = true;
+        }
+      } catch (err) {
+        console.warn('[DELETE ACTIVITY] RPC failed, falling back to direct delete:', err);
+      }
+
+      if (!deleteSuccess) {
+        const { error: dbErr } = await supabase
+          .from("activities")
+          .delete()
+          .eq("id", id);
+
+        if (dbErr) {
+          console.error('[DELETE ACTIVITY] DB error:', dbErr);
+          const errorMsg = dbErr.message || "";
+          if (errorMsg.includes("permission") || errorMsg.includes("Policy") || dbErr.code === "42501") {
+            onShowToast("Anda tidak memiliki izin untuk menghapus kegiatan ini.", "error");
+          } else if (errorMsg.includes("invalid input syntax for type uuid")) {
+            onShowToast("ID kegiatan tidak valid.", "error");
+          } else {
+            onShowToast("Gagal menghapus data kegiatan dari database.", "error");
+          }
+          setIsDeletingActivity(false);
+          setActivityToDelete(null);
+          return;
+        }
+      }
+
+      // Clean up linked rows in activity_media & latest_photos if needed
+      await supabase.from("activity_media").delete().eq("activity_id", id);
+      await supabase.from("latest_photos").delete().eq("activity_id", id);
+
+      onShowToast("Kegiatan dan media terkait berhasil dihapus.", "success");
+      setActivityToDelete(null);
+      setIsDeletingActivity(false);
+      sessionStorage.removeItem("emka_cached_activities");
+      if (onRefreshData) onRefreshData();
+      fetchData();
+    } catch (err: any) {
+      console.error('[DELETE ACTIVITY] Exception:', err);
+      onShowToast(err?.message || "Terjadi kesalahan saat menghapus kegiatan.", "error");
+      setIsDeletingActivity(false);
+      setActivityToDelete(null);
     }
   };
 
@@ -550,26 +881,63 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
     if (!window.confirm("Apakah Anda yakin ingin menyetel ulang tata letak beranda ke konfigurasi bawaan sekolah?")) return;
     try {
       const defaultSettings = fallbackData.settings;
-      const dbRow = {
-        id: "default",
-        school_name: defaultSettings.school_name,
-        address: defaultSettings.address,
-        email: defaultSettings.email,
-        phone: defaultSettings.phone,
-        whatsapp: defaultSettings.whatsapp,
-        about: defaultSettings.about_desc1,
-        vision: defaultSettings.vision_title,
-        mission: defaultSettings.missions.join("\n"),
-        raw_settings: defaultSettings,
-        updated_at: new Date().toISOString()
+      
+      const payload = {
+        p_school_name: defaultSettings.school_name,
+        p_address: defaultSettings.address,
+        p_email: defaultSettings.email,
+        p_phone: defaultSettings.phone,
+        p_whatsapp: defaultSettings.whatsapp,
+        p_about: defaultSettings.about_desc1,
+        p_vision: defaultSettings.vision_title,
+        p_mission: defaultSettings.missions.join("\n"),
+        p_about_image: JSON.stringify(defaultSettings)
       };
 
-      const { error } = await supabase
-        .from("site_settings")
-        .upsert(dbRow);
+      let saveError = null;
+      let rpcSucceeded = false;
 
-      if (error) {
-        onShowToast(error.message || "Gagal menyetel ulang tata letak.", "error");
+      // 1. Try secure SECURITY DEFINER RPC helper first
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc("admin_save_settings", payload);
+        if (!rpcErr && rpcRes && rpcRes.success) {
+          rpcSucceeded = true;
+        } else if (rpcErr && rpcErr.message && !rpcErr.message.includes("does not exist")) {
+          saveError = rpcErr.message;
+        } else if (rpcRes && !rpcRes.success) {
+          saveError = rpcRes.message;
+        }
+      } catch (e) {
+        console.warn("RPC admin_save_settings not available, falling back to direct update:", e);
+      }
+
+      // 2. Fallback to direct update using correct columns if RPC is not available or has not been run yet
+      if (!rpcSucceeded && !saveError) {
+        const dbRow = {
+          school_name: defaultSettings.school_name,
+          address: defaultSettings.address,
+          email: defaultSettings.email,
+          phone: defaultSettings.phone,
+          whatsapp: defaultSettings.whatsapp,
+          about: defaultSettings.about_desc1,
+          vision: defaultSettings.vision_title,
+          mission: defaultSettings.missions.join("\n"),
+          about_image: JSON.stringify(defaultSettings),
+          updated_at: new Date().toISOString()
+        };
+
+        const { error: updErr } = await supabase
+          .from("site_settings")
+          .update(dbRow)
+          .eq("id", settingsId);
+
+        if (updErr) {
+          saveError = updErr.message;
+        }
+      }
+
+      if (saveError) {
+        onShowToast(saveError || "Gagal menyetel ulang tata letak.", "error");
       } else {
         onShowToast("Tata letak beranda berhasil disetel ulang ke konfigurasi bawaan.", "success");
         fetchData();
@@ -583,26 +951,62 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const dbRow = {
-        id: "default",
-        school_name: settingsFormData.school_name,
-        address: settingsFormData.address,
-        email: settingsFormData.email,
-        phone: settingsFormData.phone,
-        whatsapp: settingsFormData.whatsapp,
-        about: settingsFormData.about_desc1,
-        vision: settingsFormData.vision_title,
-        mission: settingsFormData.missions.join("\n"),
-        raw_settings: settingsFormData,
-        updated_at: new Date().toISOString()
+      const payload = {
+        p_school_name: settingsFormData.school_name,
+        p_address: settingsFormData.address,
+        p_email: settingsFormData.email,
+        p_phone: settingsFormData.phone,
+        p_whatsapp: settingsFormData.whatsapp,
+        p_about: settingsFormData.about_desc1,
+        p_vision: settingsFormData.vision_title,
+        p_mission: settingsFormData.missions.join("\n"),
+        p_about_image: JSON.stringify(settingsFormData)
       };
 
-      const { error } = await supabase
-        .from("site_settings")
-        .upsert(dbRow);
+      let saveError = null;
+      let rpcSucceeded = false;
 
-      if (error) {
-        onShowToast(error.message || "Gagal menyimpan pengaturan.", "error");
+      // 1. Try secure SECURITY DEFINER RPC helper first
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc("admin_save_settings", payload);
+        if (!rpcErr && rpcRes && rpcRes.success) {
+          rpcSucceeded = true;
+        } else if (rpcErr && rpcErr.message && !rpcErr.message.includes("does not exist")) {
+          saveError = rpcErr.message;
+        } else if (rpcRes && !rpcRes.success) {
+          saveError = rpcRes.message;
+        }
+      } catch (e) {
+        console.warn("RPC admin_save_settings not available, falling back to direct update:", e);
+      }
+
+      // 2. Fallback to direct update using correct columns if RPC is not available or has not been run yet
+      if (!rpcSucceeded && !saveError) {
+        const dbRow = {
+          school_name: settingsFormData.school_name,
+          address: settingsFormData.address,
+          email: settingsFormData.email,
+          phone: settingsFormData.phone,
+          whatsapp: settingsFormData.whatsapp,
+          about: settingsFormData.about_desc1,
+          vision: settingsFormData.vision_title,
+          mission: settingsFormData.missions.join("\n"),
+          about_image: JSON.stringify(settingsFormData),
+          updated_at: new Date().toISOString()
+        };
+
+        const { error: updErr } = await supabase
+          .from("site_settings")
+          .update(dbRow)
+          .eq("id", settingsId);
+
+        if (updErr) {
+          saveError = updErr.message;
+        }
+      }
+
+      if (saveError) {
+        onShowToast(saveError || "Gagal menyimpan pengaturan.", "error");
       } else {
         onShowToast("Pengaturan sistem berhasil disimpan.", "success");
         fetchData();
@@ -908,7 +1312,7 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
                                 <Edit2 className="w-3.5 h-3.5" />
                               </button>
                               <button
-                                onClick={() => handleDeleteActivity(act.id)}
+                                onClick={() => setActivityToDelete(act)}
                                 className="p-2 border border-[#4f4538]/30 hover:border-red-500 hover:text-red-400 rounded transition-colors"
                                 title="Hapus Kegiatan"
                               >
@@ -1790,6 +2194,98 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
                         );
                       })}
                   </div>
+
+                  <div className="border-t border-[#4f4538]/10 pt-6 mt-8">
+                    <h4 className="font-display text-sm font-bold text-[#f6c374] mb-1 uppercase tracking-wider">Pengaturan Slideshow</h4>
+                    <p className="text-xs text-[#9b8f7f] mb-6">Atur durasi, gaya transisi, dan tingkat keburaman slideshow pada halaman utama.</p>
+                    
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                      <div className="space-y-6">
+                        <div className="bg-[#110e09]/60 border border-[#4f4538]/20 rounded p-4 space-y-6">
+                          <div className="space-y-2">
+                            <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading flex justify-between">
+                              <span>Durasi Slideshow</span>
+                              <span className="text-[#f6c374]">{settingsFormData.slideshow_duration ?? 5} DETIK</span>
+                            </label>
+                            <input
+                              type="range"
+                              min="2"
+                              max="30"
+                              value={settingsFormData.slideshow_duration ?? 5}
+                              onChange={(e) => setSettingsFormData(prev => ({ ...prev, slideshow_duration: Number(e.target.value) }))}
+                              className="w-full accent-[#f6c374] cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[10px] text-[#9b8f7f]">
+                              <span>2s</span>
+                              <span>30s</span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading block mb-1">Mode Transisi</label>
+                            <select
+                              value={settingsFormData.slideshow_transition ?? "Fade"}
+                              onChange={(e) => setSettingsFormData(prev => ({ ...prev, slideshow_transition: e.target.value }))}
+                              className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2 px-3 text-xs text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
+                            >
+                              <option value="Fade">Fade</option>
+                              <option value="Crossfade">Crossfade</option>
+                              <option value="Slide">Slide</option>
+                              <option value="Slide Up">Slide Up</option>
+                              <option value="Slide Down">Slide Down</option>
+                              <option value="Zoom">Zoom</option>
+                              <option value="Zoom + Fade">Zoom + Fade</option>
+                              <option value="Blur + Fade">Blur + Fade</option>
+                              <option value="Ken Burns">Ken Burns</option>
+                              <option value="Parallax">Parallax</option>
+                              <option value="Cinematic">Cinematic</option>
+                            </select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading flex justify-between">
+                              <span>Tingkat Keburaman</span>
+                              <span className="text-[#f6c374]">{settingsFormData.slideshow_blur ?? 35}%</span>
+                            </label>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={settingsFormData.slideshow_blur ?? 35}
+                              onChange={(e) => setSettingsFormData(prev => ({ ...prev, slideshow_blur: Number(e.target.value) }))}
+                              className="w-full accent-[#f6c374] cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[10px] text-[#9b8f7f]">
+                              <span>0%</span>
+                              <span>100%</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-[#110e09]/60 border border-[#4f4538]/20 rounded p-4">
+                        <h5 className="text-[10px] text-[#9b8f7f] uppercase font-subheading mb-3">Preview Slideshow</h5>
+                        
+                        <div className="relative aspect-video rounded overflow-hidden bg-[#17130e] border border-[#4f4538]/40 flex items-center justify-center">
+                          <img 
+                             src="https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&q=80" 
+                             alt="preview"
+                             className="absolute inset-0 w-full h-full object-cover transition-all duration-1000 transform scale-105"
+                             style={{ filter: `brightness(0.5) blur(${((settingsFormData.slideshow_blur ?? 35) / 100) * 12}px)` }}
+                          />
+                          <div className="relative z-10 text-center space-y-1">
+                             <div className="text-white font-display font-bold text-sm shadow-black drop-shadow-md">PREVIEW FOTO</div>
+                             <div className="text-white/90 text-[10px] font-subheading bg-black/60 px-3 py-2 rounded backdrop-blur">
+                               Transisi: {settingsFormData.slideshow_transition ?? 'Fade'} <br/>
+                               Durasi: {settingsFormData.slideshow_duration ?? 5} detik <br/>
+                               Blur: {settingsFormData.slideshow_blur ?? 35}%
+                             </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               )}
 
@@ -1885,74 +2381,280 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
                 />
               </div>
 
-              {/* Cover Image Upload/Link */}
-              <div className="space-y-2 border-t border-[#4f4538]/15 pt-4">
-                <span className="block font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8]">Foto Utama / Cover</span>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Option A: Link */}
-                  <div className="space-y-1">
-                    <label className="text-[#9b8f7f] text-[10px]">Tautan Link Foto URL:</label>
-                    <input
-                      type="text"
-                      value={activityFormData.cover_image}
-                      onChange={(e) => setActivityFormData(prev => ({ ...prev, cover_image: e.target.value }))}
-                      placeholder="https://example.com/cover.jpg"
-                      className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2 px-3 focus:outline-none focus:border-[#f6c374]"
-                    />
-                  </div>
+              {/* Cover Image Preview & Upload with 4:5 Crop */}
+              <div className="space-y-4 border-t border-[#4f4538]/15 pt-4">
+                <div className="space-y-1">
+                  <span className="block font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8]">FOTO UTAMA / COVER *</span>
+                  <p className="text-xs text-[#9b8f7f]">Gunakan foto portrait dengan rasio 4:5 (lebar:tinggi). Resolusi yang disarankan minimal 1080x1350px agar tampilan lebih tajam.</p>
+                </div>
 
-                  {/* Option B: Local File upload */}
-                  <div className="space-y-1 flex flex-col justify-end">
-                    <label className="text-[#9b8f7f] text-[10px]">Atau Unggah Foto dari Perangkat:</label>
-                    <div className="relative w-full bg-[#110e09] border border-dashed border-[#4f4538]/40 hover:border-[#f6c374] rounded p-2 text-center transition-colors">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handleFileUpload(e, "cover_image")}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      />
-                      <div className="flex items-center justify-center gap-2 text-[#9b8f7f]">
-                        <Upload className="w-4 h-4 text-[#f6c374]" />
-                        <span>Pilih Gambar</span>
+                <div className="space-y-3">
+                  {(coverPreview || existingCoverUrl) ? (
+                    <div className="bg-[#110e09] border border-[#4f4538]/30 rounded-lg p-4 max-w-md space-y-3">
+                      <div className="flex items-start gap-4">
+                        <div className="relative aspect-[4/5] w-28 overflow-hidden rounded border border-[#4f4538]/30 bg-black shrink-0">
+                          <img
+                            src={coverPreview || existingCoverUrl}
+                            alt="Cover Preview"
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0 space-y-1.5 py-1">
+                          <div className="flex items-center gap-2">
+                            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            <span className="font-subheading text-[10px] uppercase tracking-wider text-emerald-400 font-bold">Foto siap digunakan</span>
+                          </div>
+                          <div className="text-xs text-[#eae1d8] font-medium">
+                            {cropFileInfo ? `${cropFileInfo.width} × ${cropFileInfo.height} px (4:5)` : "Rasio Portrait 4:5"}
+                          </div>
+                          {cropFileInfo && (
+                            <div className="text-[11px] text-[#9b8f7f]">{cropFileInfo.sizeFormatted}</div>
+                          )}
+                          <div className="flex items-center gap-2 pt-2">
+                            <label className="bg-[#17130e] hover:bg-[#252019] text-[#eae1d8] border border-[#4f4538]/40 hover:border-[#f6c374] font-subheading text-[10px] uppercase tracking-widest px-3 py-1.5 rounded cursor-pointer transition-all inline-flex items-center gap-1.5">
+                              <span>Ganti Gambar</span>
+                              <input
+                                type="file"
+                                accept="image/jpeg,image/jpg,image/png,image/webp"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  const err = validateImageFile(file);
+                                  if (err) {
+                                    onShowToast(err, "error");
+                                    return;
+                                  }
+                                  setRawImageFileForCrop(file);
+                                  setIsCropModalOpen(true);
+                                  e.target.value = "";
+                                }}
+                                className="hidden"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (coverPreview) URL.revokeObjectURL(coverPreview);
+                                setCoverFile(null);
+                                setCoverPreview("");
+                                setExistingCoverUrl("");
+                                setCropFileInfo(null);
+                              }}
+                              className="bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 px-3 py-1.5 rounded text-[10px] uppercase tracking-wider font-subheading transition-colors inline-flex items-center gap-1"
+                            >
+                              Hapus
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <label className="border-2 border-dashed border-[#4f4538]/40 hover:border-[#f6c374]/60 bg-[#110e09]/50 hover:bg-[#110e09] rounded-xl p-8 text-center cursor-pointer flex flex-col items-center justify-center space-y-3 transition-all group max-w-md">
+                      <div className="w-12 h-12 rounded-full bg-[#17130e] border border-[#4f4538]/40 flex items-center justify-center text-[#f6c374] group-hover:scale-110 transition-transform">
+                        <Upload className="w-5 h-5" />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="font-subheading text-xs uppercase tracking-widest text-[#eae1d8] font-bold">Unggah Foto Portrait (Rasio 4:5)</div>
+                        <div className="text-xs text-[#9b8f7f]">
+                          Klik untuk memilih foto <span className="underline">atau drag & drop file di sini</span>
+                        </div>
+                      </div>
+                      <div className="text-[10px] text-[#9b8f7f]/70 uppercase tracking-widest">
+                        JPG, PNG, WEBP — Maks. 5MB
+                      </div>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,image/webp"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const err = validateImageFile(file);
+                          if (err) {
+                            onShowToast(err, "error");
+                            return;
+                          }
+                          setRawImageFileForCrop(file);
+                          setIsCropModalOpen(true);
+                          e.target.value = "";
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
                 </div>
               </div>
 
-              {/* Background Video Upload/Link */}
-              <div className="space-y-2 border-t border-[#4f4538]/15 pt-4">
-                <span className="block font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8]">Background Video (Sinematik)</span>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Option A: Link */}
-                  <div className="space-y-1">
-                    <label className="text-[#9b8f7f] text-[10px]">Tautan Link Video (.mp4):</label>
-                    <input
-                      type="text"
-                      value={activityFormData.background_video}
-                      onChange={(e) => setActivityFormData(prev => ({ ...prev, background_video: e.target.value }))}
-                      placeholder="https://example.com/loop.mp4"
-                      className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2 px-3 focus:outline-none focus:border-[#f6c374]"
-                    />
-                  </div>
+              <ImageCropModal
+                isOpen={isCropModalOpen}
+                imageFile={rawImageFileForCrop}
+                onClose={() => setIsCropModalOpen(false)}
+                onCropComplete={(croppedFile, previewUrl, info) => {
+                  if (coverPreview) URL.revokeObjectURL(coverPreview);
+                  setCoverFile(croppedFile);
+                  setCoverPreview(previewUrl);
+                  setCropFileInfo(info);
+                  onShowToast("Foto berhasil dicrop ke rasio 4:5.", "success");
+                }}
+              />
 
-                  {/* Option B: Local File upload */}
-                  <div className="space-y-1 flex flex-col justify-end">
-                    <label className="text-[#9b8f7f] text-[10px]">Atau Unggah Video (.mp4 / .webm):</label>
-                    <div className="relative w-full bg-[#110e09] border border-dashed border-[#4f4538]/40 hover:border-[#f6c374] rounded p-2 text-center transition-colors">
+              {/* Background Video Preview & Upload */}
+              <div className="space-y-3 border-t border-[#4f4538]/15 pt-4">
+                <span className="block font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8]">Background Video (Sinematik - Opsional)</span>
+                
+                <div className="space-y-3">
+                  {(videoPreview || existingVideoUrl) ? (
+                    <>
+                      <div className="relative aspect-[16/9] w-full max-w-md overflow-hidden rounded border border-[#4f4538]/30 bg-[#110e09]">
+                        <video
+                          ref={videoRef}
+                          src={videoPreview || existingVideoUrl}
+                          controls
+                          preload="metadata"
+                          className="w-full h-full object-cover"
+                          onLoadedMetadata={(e) => {
+                            setVideoDuration(e.currentTarget.duration);
+                          }}
+                          onTimeUpdate={(e) => {
+                            if (previewTrimMode) {
+                              const start = isTrimConfirmed ? confirmedVideoStart : videoTrimStart;
+                              const end = (isTrimConfirmed ? confirmedVideoEnd : videoTrimEnd) ?? videoDuration;
+                              if (e.currentTarget.currentTime >= end - 0.1) {
+                                if (videoTrimLoop) {
+                                  e.currentTarget.currentTime = start;
+                                  e.currentTarget.play().catch(() => {});
+                                } else {
+                                  e.currentTarget.pause();
+                                  setPreviewTrimMode(false);
+                                }
+                              }
+                            }
+                          }}
+                          onEnded={(e) => {
+                            if (previewTrimMode) {
+                              const start = isTrimConfirmed ? confirmedVideoStart : videoTrimStart;
+                              if (videoTrimLoop) {
+                                e.currentTarget.currentTime = start;
+                                e.currentTarget.play().catch(() => {});
+                              } else {
+                                setPreviewTrimMode(false);
+                              }
+                            }
+                          }}
+                          onPause={() => {
+                            if (!videoTrimLoop || !previewTrimMode) {
+                              setPreviewTrimMode(false);
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (videoPreview) URL.revokeObjectURL(videoPreview);
+                            setVideoFile(null);
+                            setVideoPreview("");
+                            setExistingVideoUrl("");
+                            setVideoTrimStart(0);
+                            setVideoTrimEnd(null);
+                            setConfirmedVideoStart(0);
+                            setConfirmedVideoEnd(null);
+                            setIsTrimConfirmed(true);
+                            setVideoTrimLoop(true);
+                            setVideoDuration(0);
+                            setPreviewTrimMode(false);
+                          }}
+                          className="absolute top-2 right-2 bg-red-600/80 hover:bg-red-600 text-white p-1.5 rounded text-[10px] uppercase tracking-wider font-subheading transition-colors z-10"
+                        >
+                          Hapus Video
+                        </button>
+                      </div>
+
+                      {/* VIDEO TRIM PANEL */}
+                      <VideoTrimmer 
+                        videoUrl={videoPreview || existingVideoUrl}
+                        duration={videoDuration}
+                        startTime={videoTrimStart}
+                        endTime={videoTrimEnd}
+                        loop={videoTrimLoop}
+                        onTrimChange={(start, end) => {
+                          setVideoTrimStart(start);
+                          setVideoTrimEnd(end);
+                          setIsTrimConfirmed(false);
+                        }}
+                        onLoopChange={setVideoTrimLoop}
+                        isTrimConfirmed={isTrimConfirmed}
+                        onConfirmTrim={() => {
+                          const actualEnd = videoTrimEnd === null ? videoDuration : videoTrimEnd;
+                          if (videoTrimStart < 0 || (actualEnd > 0 && actualEnd <= videoTrimStart)) {
+                            onShowToast("Rentang video tidak valid.", "error");
+                            return;
+                          }
+                          setConfirmedVideoStart(videoTrimStart);
+                          setConfirmedVideoEnd(videoTrimEnd);
+                          setIsTrimConfirmed(true);
+                          onShowToast("Trim video berhasil dikonfirmasi.", "success");
+                          if (videoRef.current) {
+                            videoRef.current.currentTime = videoTrimStart;
+                          }
+                        }}
+                        previewMode={previewTrimMode}
+                        videoRef={videoRef}
+                        onPreview={() => {
+                          if (videoRef.current) {
+                            const startToUse = isTrimConfirmed ? confirmedVideoStart : videoTrimStart;
+                            videoRef.current.currentTime = startToUse;
+                            if (videoRef.current.paused) {
+                              videoRef.current.play().catch(() => {});
+                              setPreviewTrimMode(true);
+                            } else {
+                              videoRef.current.pause();
+                              setPreviewTrimMode(false);
+                            }
+                          }
+                        }}
+                        onReset={() => {
+                           setVideoTrimStart(0);
+                           setVideoTrimEnd(null);
+                           setConfirmedVideoStart(0);
+                           setConfirmedVideoEnd(null);
+                           setIsTrimConfirmed(false);
+                           if (videoRef.current) {
+                             videoRef.current.currentTime = 0;
+                             videoRef.current.pause();
+                           }
+                           setPreviewTrimMode(false);
+                           onShowToast("Trim video di-reset ke durasi penuh.", "success");
+                        }}
+                      />
+                    </>
+                  ) : (
+                    <div className="text-[11px] text-[#9b8f7f] italic">Belum ada video latar yang dipilih.</div>
+                  )}
+
+                  <div className="flex items-center gap-3">
+                    <label className="bg-[#17130e] hover:bg-[#252019] text-[#eae1d8] border border-[#4f4538]/40 hover:border-[#f6c374] font-subheading text-[10px] uppercase tracking-widest px-4 py-2.5 rounded cursor-pointer transition-all inline-flex items-center gap-2">
+                      <Upload className="w-3.5 h-3.5 text-[#f6c374]" />
+                      <span>{videoPreview || existingVideoUrl ? "Ganti Video" : "Pilih Video"}</span>
                       <input
                         type="file"
-                        accept="video/*"
-                        onChange={(e) => handleFileUpload(e, "background_video")}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        accept="video/mp4,video/webm,video/quicktime,video/mov"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const err = validateVideoFile(file);
+                          if (err) {
+                            onShowToast(err, "error");
+                            return;
+                          }
+                          if (videoPreview) URL.revokeObjectURL(videoPreview);
+                          const objUrl = URL.createObjectURL(file);
+                          setVideoFile(file);
+                          setVideoPreview(objUrl);
+                          e.target.value = "";
+                        }}
+                        className="hidden"
                       />
-                      <div className="flex items-center justify-center gap-2 text-[#9b8f7f]">
-                        <Upload className="w-4 h-4 text-[#f6c374]" />
-                        <span>Pilih Video</span>
-                      </div>
-                    </div>
+                    </label>
                   </div>
                 </div>
               </div>
@@ -2021,7 +2723,7 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
                 >
                   {uploadLoading ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" /> Sedang Mengunggah
+                      <Loader2 className="w-4 h-4 animate-spin" /> {uploadStatusText || "Sedang Mengunggah..."}
                     </>
                   ) : (
                     "Simpan Kegiatan"
@@ -2137,6 +2839,107 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
         </div>
       )}
 
+      {/* DELETE CONFIRMATION MODAL */}
+      {activityToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-fade-in">
+          <div className="glass-panel w-full max-w-md rounded-lg border border-[#4f4538]/30 bg-[#14100b] p-6 shadow-2xl">
+            <div className="flex items-center gap-3 text-red-400 mb-3">
+              <div className="p-2.5 rounded-full bg-red-500/10 border border-red-500/20">
+                <Trash2 className="w-5 h-5 text-red-400" />
+              </div>
+              <h3 className="font-display text-lg font-bold text-[#eae1d8]">
+                Hapus kegiatan ini?
+              </h3>
+            </div>
+            
+            <p className="font-body text-xs text-[#9b8f7f] leading-relaxed mb-4">
+              Cover, gambar background, dan video yang terkait juga akan dihapus dari penyimpanan.
+            </p>
+
+            {activityToDelete.title && (
+              <div className="mb-6 p-3 rounded bg-[#110e09] border border-[#4f4538]/20 font-body text-xs text-[#eae1d8] truncate">
+                <span className="text-[#9b8f7f] font-subheading text-[10px] tracking-widest uppercase block mb-1">Judul Kegiatan:</span>
+                {activityToDelete.title}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#4f4538]/15">
+              <button
+                type="button"
+                disabled={isDeletingActivity}
+                onClick={() => setActivityToDelete(null)}
+                className="px-4 py-2 rounded-sm border border-[#4f4538]/30 font-subheading text-xs tracking-wider uppercase text-[#eae1d8] hover:bg-[#4f4538]/20 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                BATAL
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingActivity}
+                onClick={() => handleConfirmDeleteActivity(activityToDelete)}
+                className="px-5 py-2 rounded-sm bg-red-600 hover:bg-red-700 text-white font-subheading text-xs tracking-wider uppercase font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-2"
+              >
+                {isDeletingActivity ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>MENGHAPUS...</span>
+                  </>
+                ) : (
+                  <span>HAPUS</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+function AdminSlideshowPreview({ activities, duration, transition, blurPercent }: { activities: Activity[]; duration: number; transition: string; blurPercent: number }) {
+  const [previewIndex, setPreviewIndex] = useState(0);
+  const previewTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const activeActs = activities;
+  const currentAct = activeActs.length > 0 ? activeActs[previewIndex % activeActs.length] : null;
+  const blurPx = Math.round((blurPercent / 100) * 12 * 10) / 10;
+
+  useEffect(() => {
+    if (previewTimerRef.current) clearInterval(previewTimerRef.current);
+    if (activeActs.length <= 1) return;
+    const ms = Math.max(1000, duration * 1000);
+    previewTimerRef.current = setInterval(() => {
+      setPreviewIndex(prev => (prev + 1) % activeActs.length);
+    }, ms);
+    return () => {
+      if (previewTimerRef.current) clearInterval(previewTimerRef.current);
+    };
+  }, [duration, activeActs.length]);
+
+  return (
+    <div className="relative aspect-[16/9] w-full max-h-[260px] overflow-hidden rounded border border-[#4f4538]/30 bg-[#110e09] flex items-center justify-center">
+      <div className="absolute inset-0">
+        <img
+          src={currentAct?.cover_image || ""}
+          alt=""
+          className="w-full h-full object-cover filter brightness-[0.25]"
+          style={{ filter: `brightness(0.25) blur(${blurPx}px)` }}
+          referrerPolicy="no-referrer"
+        />
+        <div className="absolute inset-0 bg-black/50" />
+      </div>
+
+      <div className="relative z-10 p-6 text-center max-w-lg space-y-2">
+        <span className="font-subheading text-[9px] text-[#f6c374] bg-[#110e09]/90 border border-[#f6c374]/30 px-2 py-0.5 rounded-full uppercase tracking-widest">
+          {currentAct?.category || "Kegiatan"} ({transition})
+        </span>
+        <h5 className="font-display text-base sm:text-lg font-bold text-[#eae1d8] uppercase tracking-wide truncate">
+          {currentAct?.title || "Judul Kegiatan"}
+        </h5>
+        <p className="font-body text-[11px] text-[#d3c4b3] line-clamp-2">
+          {currentAct?.description || "Deskripsi kegiatan..."}
+        </p>
+      </div>
     </div>
   );
 }

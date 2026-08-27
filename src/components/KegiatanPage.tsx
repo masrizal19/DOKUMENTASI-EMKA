@@ -224,7 +224,7 @@ export default function KegiatanPage({ activities, photos, onViewActivity }: Keg
                     className="group bg-[#110e09]/70 border border-[#4f4538]/15 hover:border-[#f6c374]/35 rounded-sm overflow-hidden cursor-pointer transition-cinematic shadow-xl flex flex-col h-full"
                   >
                     {/* Cover Photo */}
-                    <div className="aspect-[16/10] w-full overflow-hidden relative">
+                    <div className="aspect-[4/5] w-full overflow-hidden relative">
                       <img
                         src={act.cover_image}
                         alt={act.title}

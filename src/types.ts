@@ -7,6 +7,9 @@ export interface Activity {
   description: string;
   cover_image: string;
   background_video?: string;
+  background_video_start?: number;
+  background_video_end?: number | null;
+  background_video_loop?: boolean;
   google_drive_url?: string | null;
   status: 'published' | 'draft';
   created_at: string;
@@ -91,6 +94,11 @@ export interface Settings {
   sections: SectionSetting[];
   enable_kegiatan_page?: boolean;
   enable_foto_terbaru_page?: boolean;
+
+  // Slideshow Settings
+  slideshow_duration?: number;
+  slideshow_transition?: string;
+  slideshow_blur?: number;
 }
 
 export interface DashboardStats {

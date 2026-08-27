@@ -1,0 +1,39 @@
+--- src/components/VideoTrimmer.tsx
++++ src/components/VideoTrimmer.tsx
+@@ -41,11 +41,15 @@
+   // Generate thumbnails safely
+   useEffect(() => {
+     if (!videoUrl || duration <= 0) return;
+     let isCancelled = false;
++    let timeoutId: number;
+     
+     const generateThumbnails = async () => {
+       const numFrames = 10;
+       const interval = duration / numFrames;
+       const thumbs: string[] = [];
+       
+       const video = document.createElement('video');
+       video.src = videoUrl;
+       video.muted = true;
+@@ -87,4 +91,8 @@
+             });
+           });
+         }
+         if (!isCancelled) {
+           setThumbnails(thumbs);
+         }
+       });
+       
+       video.addEventListener('error', () => {
+          if (!isCancelled) setThumbnails(['error']);
+       });
+       
+       video.load();
+     };
+     
+     generateThumbnails();
+     
+     return () => {
+       isCancelled = true;
+     };
+   }, [videoUrl, duration]);

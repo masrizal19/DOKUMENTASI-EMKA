@@ -14,6 +14,7 @@ import Notification from "./components/Notification.js";
 import { Calendar, Tag, Shield, Clock, BookOpen, MapPin, Mail, Phone, ExternalLink, Loader2 } from "lucide-react";
 import { supabase } from "./lib/supabase.js";
 import { fallbackData } from "./lib/fallbackData.js";
+import { getAdminSession, isAdminAuthenticated, performAdminLogout } from "./lib/adminAuth.js";
 
 export default function App() {
   // Public data state
@@ -30,9 +31,10 @@ export default function App() {
   // Search Modal state
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
-  // Admin session state
-  const [adminToken, setAdminToken] = useState<string | null>(sessionStorage.getItem("admin_token"));
+  // Admin session & auth guard state
+  const [adminToken, setAdminToken] = useState<string | null>(null);
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   // Lightbox state
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -90,8 +92,8 @@ export default function App() {
       // 1. Fetch site settings with timeout
       const settingsPromise = supabase
         .from("site_settings")
-        .select("site_name, logo, whatsapp, accent_color, school_name, address, city, province, country, email, phone, tata_usaha, whatsapp_title, whatsapp_description, about_title, about_desc1, about_desc2, about_photo, vision_title, vision_content, missions, hero_label, hero_title, hero_description, hero_image, hero_video, hero_source, sections, raw_settings")
-        .eq("id", "default")
+        .select("id, school_name, address, email, phone, whatsapp, about, vision, mission, about_image, updated_at")
+        .limit(1)
         .maybeSingle();
 
       const settingsResult = await fetchWithTimeout(settingsPromise, 8000);
@@ -99,49 +101,66 @@ export default function App() {
       let activeSet: Settings | null = null;
       if (settingsResult && settingsResult.data) {
         const settingsData = settingsResult.data as any;
-        activeSet = settingsData.raw_settings ? (settingsData.raw_settings as Settings) : {
-          site_name: settingsData.site_name || "GALERI EMKA",
-          logo: settingsData.logo || "",
-          whatsapp: settingsData.whatsapp || "628123456789",
-          accent_color: settingsData.accent_color || "#f6c374",
-          updated_at: settingsData.updated_at || new Date().toISOString(),
-          school_name: settingsData.school_name || "SMK Multi Karya",
-          address: settingsData.address || "Jl. SMK Multi Karya No. 45",
-          city: settingsData.city || "Medan",
-          province: settingsData.province || "Sumatera Utara",
-          country: settingsData.country || "Indonesia",
-          email: settingsData.email || "info@multikarya.sch.id",
-          phone: settingsData.phone || "(061) 1234567",
-          tata_usaha: settingsData.tata_usaha || "Senin - Sabtu",
-          whatsapp_title: settingsData.whatsapp_title || "Narahubung Cepat",
-          whatsapp_description: settingsData.whatsapp_description || "Hubungi admin secara langsung melalui WhatsApp.",
-          about_title: settingsData.about_title || "Mengabadikan Jejak, Mengukir Kenangan Sinematik",
-          about_desc1: settingsData.about_desc1 || "Galeri EMKA adalah wadah dokumentasi visual.",
-          about_desc2: settingsData.about_desc2 || "Kami tidak hanya mengambil foto.",
-          about_photo: settingsData.about_photo || "",
-          vision_title: settingsData.vision_title || "Visi & Seni Visual",
-          vision_content: settingsData.vision_content || "Menjadi pusat dokumentasi visual sekolah.",
-          missions: settingsData.missions || [],
-          hero_label: settingsData.hero_label || "DOKUMENTASI SINEMATIK",
-          hero_title: settingsData.hero_title || "GALERI EMKA",
-          hero_description: settingsData.hero_description || "Elevating School Memories into Fine-Art Archives.",
-          hero_image: settingsData.hero_image || "",
-          hero_video: settingsData.hero_video || "",
-          hero_source: settingsData.hero_source || "auto",
-          sections: settingsData.sections || []
+        let raw: any = {};
+        if (settingsData.about_image) {
+          try {
+            raw = JSON.parse(settingsData.about_image);
+          } catch (e) {
+            console.error("Failed to parse settings JSON from about_image:", e);
+          }
+        }
+        activeSet = {
+          site_name: raw.site_name || "GALERI EMKA",
+          logo: raw.logo || "",
+          whatsapp: settingsData.whatsapp || raw.whatsapp || "628123456789",
+          accent_color: raw.accent_color || "#f6c374",
+          updated_at: settingsData.updated_at || raw.updated_at || new Date().toISOString(),
+          school_name: settingsData.school_name || raw.school_name || "SMK Multi Karya",
+          address: settingsData.address || raw.address || "Jl. SMK Multi Karya No. 45",
+          city: raw.city || "Medan",
+          province: raw.province || "Sumatera Utara",
+          country: raw.country || "Indonesia",
+          email: settingsData.email || raw.email || "info@multikarya.sch.id",
+          phone: settingsData.phone || raw.phone || "(061) 1234567",
+          tata_usaha: raw.tata_usaha || "Senin - Sabtu",
+          whatsapp_title: raw.whatsapp_title || "Narahubung Cepat",
+          whatsapp_description: raw.whatsapp_description || "Hubungi admin secara langsung melalui WhatsApp.",
+          about_title: raw.about_title || "Mengabadikan Jejak, Mengukir Kenangan Sinematik",
+          about_desc1: settingsData.about || raw.about_desc1 || "Galeri EMKA adalah wadah dokumentasi visual.",
+          about_desc2: raw.about_desc2 || "Kami tidak hanya mengambil foto.",
+          about_photo: raw.about_photo || "",
+          vision_title: settingsData.vision || raw.vision_title || "Visi & Seni Visual",
+          vision_content: raw.vision_content || "Menjadi pusat dokumentasi visual sekolah.",
+          missions: (settingsData.mission ? settingsData.mission.split("\n") : null) || raw.missions || [],
+          hero_label: raw.hero_label || "DOKUMENTASI SINEMATIK",
+          hero_title: raw.hero_title || "GALERI EMKA",
+          hero_description: raw.hero_description || "Elevating School Memories into Fine-Art Archives.",
+          hero_image: raw.hero_image || "",
+          hero_video: raw.hero_video || "",
+          hero_source: raw.hero_source || "auto",
+          sections: raw.sections || [],
+          enable_kegiatan_page: raw.enable_kegiatan_page ?? true,
+          enable_foto_terbaru_page: raw.enable_foto_terbaru_page ?? true,
+          slideshow_duration: raw.slideshow_duration ?? 5,
+          slideshow_transition: raw.slideshow_transition ?? "Fade",
+          slideshow_blur: raw.slideshow_blur ?? 35
         };
       }
 
       // 2. Fetch activities with timeout
       const activitiesPromise = supabase
         .from("activities")
-        .select("id, title, slug, category, date, description, cover_image, background_video, google_drive_url, published, created_at, updated_at")
+        .select("*")
         .order("date", { ascending: false });
 
       const activitiesResult = await fetchWithTimeout(activitiesPromise, 8000);
 
+      if (activitiesResult?.error) {
+        console.error("PUBLIC ACTIVITIES FETCH ERROR", activitiesResult.error);
+      }
+
       let mappedActivities: Activity[] = [];
-      if (activitiesResult && activitiesResult.data) {
+      if (activitiesResult && activitiesResult.data && !activitiesResult.error) {
         mappedActivities = (activitiesResult.data as any[]).map(row => ({
           id: row.id,
           title: row.title,
@@ -150,9 +169,13 @@ export default function App() {
           date: row.date,
           description: row.description,
           cover_image: row.cover_image,
+          background_image: row.background_image || "",
           background_video: row.background_video || "",
+          background_video_start: row.background_video_start || 0,
+          background_video_end: row.background_video_end || null,
+          background_video_loop: row.background_video_loop !== false,
           google_drive_url: row.google_drive_url || null,
-          status: row.published ? "published" : "draft",
+          status: (row.published === true || String(row.published) === "true" || row.status === "published") ? "published" : "draft",
           created_at: row.created_at,
           updated_at: row.updated_at
         }));
@@ -166,8 +189,12 @@ export default function App() {
 
       const photosResult = await fetchWithTimeout(photosPromise, 8000);
 
+      if (photosResult?.error) {
+        console.error("PUBLIC PHOTOS FETCH ERROR", photosResult.error);
+      }
+
       let mappedPhotos: Photo[] = [];
-      if (photosResult && photosResult.data) {
+      if (photosResult && photosResult.data && !photosResult.error) {
         mappedPhotos = (photosResult.data as any[]).map(row => ({
           id: row.id,
           activity_id: row.activity_id,
@@ -180,19 +207,17 @@ export default function App() {
       }
 
       // If we got valid fresh data, update states and caching
-      if (mappedActivities.length > 0 || mappedPhotos.length > 0 || activeSet) {
-        if (mappedActivities.length > 0) {
-          setActivities(mappedActivities);
-          sessionStorage.setItem("emka_cached_activities", JSON.stringify(mappedActivities));
-        }
-        if (mappedPhotos.length > 0) {
-          setPhotos(mappedPhotos);
-          sessionStorage.setItem("emka_cached_photos", JSON.stringify(mappedPhotos));
-        }
-        if (activeSet) {
-          setSettings(activeSet);
-          sessionStorage.setItem("emka_cached_settings", JSON.stringify(activeSet));
-        }
+      if (activitiesResult && activitiesResult.data && !activitiesResult.error && Array.isArray(activitiesResult.data)) {
+        setActivities(mappedActivities);
+        sessionStorage.setItem("emka_cached_activities", JSON.stringify(mappedActivities));
+      }
+      if (photosResult && photosResult.data && !photosResult.error && Array.isArray(photosResult.data)) {
+        setPhotos(mappedPhotos);
+        sessionStorage.setItem("emka_cached_photos", JSON.stringify(mappedPhotos));
+      }
+      if (activeSet) {
+        setSettings(activeSet);
+        sessionStorage.setItem("emka_cached_settings", JSON.stringify(activeSet));
       }
     } catch (error) {
       console.error("Supabase load error, falling back to local data:", error);
@@ -201,31 +226,50 @@ export default function App() {
     }
   };
 
-  // 2. Verify Admin Token on load
-  const verifyAdminToken = async () => {
+  // 2. Auth Guard & Session Check using official Supabase Auth
+  const checkAdminSession = async () => {
+    setIsAuthLoading(true);
     try {
-      const localToken = sessionStorage.getItem("admin_token");
-      if (localToken === "emka_admin_session_active") {
-        setIsAdminLoggedIn(true);
-        setAdminToken("emka_admin_session_active");
-        return;
-      }
+      const authSession = await getAdminSession();
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session && session.user && session.user.email === "admin@multikarya.sch.id") {
+      if (authSession?.session && authSession?.user) {
         setIsAdminLoggedIn(true);
-        setAdminToken(session.access_token);
-        sessionStorage.setItem("admin_token", session.access_token);
+        setAdminToken(authSession.session.access_token);
       } else {
         setIsAdminLoggedIn(false);
         setAdminToken(null);
       }
-    } catch (_) {
+    } catch (err) {
+      console.error("[AUTH ERROR]", err);
       setIsAdminLoggedIn(false);
+      setAdminToken(null);
+    } finally {
+      setIsAuthLoading(false);
     }
   };
 
-  // 3. Hash-based routing listener & Global Search shortcut
+  useEffect(() => {
+    fetchPublicData();
+    checkAdminSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("[AUTH CHANGE]", event, "session active:", !!session);
+      if (session && session.user) {
+        setIsAdminLoggedIn(true);
+        setAdminToken(session.access_token);
+      } else {
+        setIsAdminLoggedIn(false);
+        setAdminToken(null);
+      }
+      setIsAuthLoading(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // 3. Hash & Path Routing listener & Global Search shortcut
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
@@ -239,9 +283,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const handleHashChange = () => {
+    const handleLocationChange = () => {
       const hash = window.location.hash;
-      if (!hash || hash === "#" || hash === "#beranda") {
+      const pathname = window.location.pathname;
+
+      if (pathname.startsWith("/admin") || hash.startsWith("#admin")) {
+        setActiveTab("admin");
+      } else if (!hash || hash === "#" || hash === "#beranda") {
         setActiveTab("beranda");
         setPrevTab("beranda");
         setActiveSlug("");
@@ -261,9 +309,6 @@ export default function App() {
         setActiveTab("tentang");
         setPrevTab("tentang");
         setActiveSlug("");
-      } else if (hash === "#admin") {
-        setActiveTab("admin");
-        setActiveSlug("");
       } else if (hash.startsWith("#kegiatan/")) {
         const slug = hash.replace("#kegiatan/", "");
         setActiveTab("detail-kegiatan");
@@ -271,24 +316,29 @@ export default function App() {
       }
     };
 
-    window.addEventListener("hashchange", handleHashChange);
+    window.addEventListener("hashchange", handleLocationChange);
+    window.addEventListener("popstate", handleLocationChange);
     // Trigger on initial mount
-    handleHashChange();
+    handleLocationChange();
 
-    return () => window.removeEventListener("hashchange", handleHashChange);
+    return () => {
+      window.removeEventListener("hashchange", handleLocationChange);
+      window.removeEventListener("popstate", handleLocationChange);
+    };
   }, []);
-
-  useEffect(() => {
-    fetchPublicData();
-    verifyAdminToken();
-  }, [adminToken]);
 
   // Navigate utility that syncs with address bar hash
   const navigateTo = (tab: "beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "admin", slug?: string) => {
-    if (slug) {
+    if (tab === "admin") {
+      window.location.hash = "#admin";
+      setActiveTab("admin");
+    } else if (slug) {
       window.location.hash = `#kegiatan/${slug}`;
+      setActiveTab("detail-kegiatan");
+      setActiveSlug(slug);
     } else {
       window.location.hash = `#${tab}`;
+      setActiveTab(tab);
     }
   };
 
@@ -296,20 +346,21 @@ export default function App() {
     sessionStorage.setItem("admin_token", token);
     setAdminToken(token);
     setIsAdminLoggedIn(true);
+    setIsAuthLoading(false);
     navigateTo("admin");
   };
 
   const handleAdminLogout = async () => {
+    setIsAuthLoading(true);
     try {
-      await supabase.auth.signOut();
-    } catch (_) {
-      // safe fallback if not fully authenticated with traditional auth
-    }
-    sessionStorage.removeItem("admin_token");
+      await performAdminLogout();
+    } catch (_) {}
+
     setAdminToken(null);
     setIsAdminLoggedIn(false);
+    setIsAuthLoading(false);
     showToast("Berhasil keluar dari dashboard admin.", "success");
-    navigateTo("beranda");
+    navigateTo("admin");
   };
 
   // Open Lightbox
@@ -434,7 +485,7 @@ export default function App() {
                               onClick={() => navigateTo("beranda", act.slug)}
                               className="group relative bg-[#110e09] border border-[#4f4538]/15 rounded-sm overflow-hidden cursor-pointer hover:border-[#f6c374]/40 transition-cinematic shadow-lg flex flex-col"
                             >
-                              <div className="aspect-[4/3] w-full overflow-hidden relative">
+                              <div className="aspect-[4/5] w-full overflow-hidden relative">
                                 <img
                                   src={act.cover_image}
                                   alt={act.title}
@@ -821,11 +872,19 @@ export default function App() {
         )}
 
         {activeTab === "admin" && (
-          isAdminLoggedIn ? (
+          isAuthLoading ? (
+            <div className="min-h-screen bg-[#110e09] flex flex-col items-center justify-center space-y-4 text-[#eae1d8]">
+              <Loader2 className="w-8 h-8 text-[#f6c374] animate-spin" />
+              <p className="font-subheading text-xs tracking-widest text-[#9b8f7f] uppercase">
+                Memeriksa sesi admin...
+              </p>
+            </div>
+          ) : isAdminLoggedIn ? (
             <AdminDashboard
               token={adminToken || ""}
               onLogout={handleAdminLogout}
               onShowToast={showToast}
+              onRefreshData={fetchPublicData}
             />
           ) : (
             <AdminLogin

@@ -1,0 +1,20 @@
+--- src/components/AdminDashboard.tsx
++++ src/components/AdminDashboard.tsx
+@@ -493,6 +493,17 @@
+       const adminPin = sessionStorage.getItem("admin_pin") || "1902";
+       const adminUsername = sessionStorage.getItem("admin_username") || "ADMIN";
+       const adminToken = sessionStorage.getItem("admin_token");
++
++      // Validasi session sebelum RPC (seperti yang diminta)
++      if (!adminToken) {
++        onShowToast("Sesi admin tidak ditemukan. Silakan login kembali.", "error");
++        setUploadLoading(false);
++        return;
++      }
++
++      // Refresh session check if using real Supabase Auth
++      const { data: { session } } = await supabase.auth.getSession();
++      const isRealAuth = !!session;
+       
+       const isValidUUID = (id: string) => {
+         return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);

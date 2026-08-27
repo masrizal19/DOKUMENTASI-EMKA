@@ -86,8 +86,39 @@ export default function DetailKegiatan({
               poster={activity.cover_image}
               autoPlay
               muted
-              loop
               playsInline
+              onLoadedMetadata={(e) => {
+                const start = activity.background_video_start || 0;
+                if (start > 0) {
+                  e.currentTarget.currentTime = start;
+                }
+              }}
+              onTimeUpdate={(e) => {
+                const start = activity.background_video_start || 0;
+                const end = activity.background_video_end;
+                const loop = activity.background_video_loop !== false;
+                
+                if (start > 0 && e.currentTarget.currentTime < start) {
+                  e.currentTarget.currentTime = start;
+                }
+
+                if (end && end > start && e.currentTarget.currentTime >= end) {
+                  if (loop) {
+                    e.currentTarget.currentTime = start;
+                    e.currentTarget.play().catch(() => {});
+                  } else {
+                    e.currentTarget.pause();
+                  }
+                }
+              }}
+              onEnded={(e) => {
+                 const start = activity.background_video_start || 0;
+                 const loop = activity.background_video_loop !== false;
+                 if (loop) {
+                    e.currentTarget.currentTime = start;
+                    e.currentTarget.play().catch(() => {});
+                 }
+              }}
               onPlay={() => setVideoLoaded(true)}
               className={`absolute inset-0 w-full h-full object-cover filter brightness-[0.45] transition-opacity duration-1000 ${
                 videoLoaded ? "opacity-100" : "opacity-0"
