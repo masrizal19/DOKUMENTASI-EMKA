@@ -9,6 +9,7 @@ import DetailKegiatan from "./components/DetailKegiatan.js";
 import AdminLogin from "./components/AdminLogin.js";
 import AdminDashboard from "./components/AdminDashboard.js";
 import Lightbox from "./components/Lightbox.js";
+import SearchModal from "./components/SearchModal.js";
 import Notification from "./components/Notification.js";
 import { Calendar, Tag, Shield, Clock, BookOpen, MapPin, Mail, Phone, ExternalLink, Loader2 } from "lucide-react";
 import { supabase } from "./lib/supabase.js";
@@ -25,6 +26,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "detail-kegiatan" | "admin">("beranda");
   const [activeSlug, setActiveSlug] = useState<string>("");
   const [prevTab, setPrevTab] = useState<string>("beranda");
+
+  // Search Modal state
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   // Admin session state
   const [adminToken, setAdminToken] = useState<string | null>(sessionStorage.getItem("admin_token"));
@@ -221,7 +225,19 @@ export default function App() {
     }
   };
 
-  // 3. Hash-based routing listener
+  // 3. Hash-based routing listener & Global Search shortcut
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        setIsSearchOpen((prev) => !prev);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
@@ -349,6 +365,7 @@ export default function App() {
           onChangeTab={navigateTo}
           settings={activeSettings}
           isAdminLoggedIn={isAdminLoggedIn}
+          onOpenSearch={() => setIsSearchOpen(true)}
         />
       )}
 
@@ -848,6 +865,22 @@ export default function App() {
           </div>
         </footer>
       )}
+
+      {/* Global Interactive Search Modal */}
+      <SearchModal
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        activities={activities}
+        photos={photos}
+        onViewActivity={(slug) => {
+          setIsSearchOpen(false);
+          navigateTo("beranda", slug);
+        }}
+        onOpenLightbox={(photosList, index) => {
+          setIsSearchOpen(false);
+          openLightbox(photosList, index);
+        }}
+      />
 
       {/* Fullscreen Visual Lightbox Overlay */}
       {lightboxOpen && (

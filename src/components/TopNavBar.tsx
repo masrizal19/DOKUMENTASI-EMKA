@@ -1,15 +1,16 @@
 import { useState, useEffect } from "react";
 import { Settings } from "../types.js";
-import { Menu, X, MessageSquare, Shield } from "lucide-react";
+import { Menu, X, MessageSquare, Shield, Search } from "lucide-react";
 
 interface TopNavBarProps {
   activeTab: string;
   onChangeTab: (tab: "beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "admin", slug?: string) => void;
   settings: Settings;
   isAdminLoggedIn: boolean;
+  onOpenSearch: () => void;
 }
 
-export default function TopNavBar({ activeTab, onChangeTab, settings, isAdminLoggedIn }: TopNavBarProps) {
+export default function TopNavBar({ activeTab, onChangeTab, settings, isAdminLoggedIn, onOpenSearch }: TopNavBarProps) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -67,7 +68,7 @@ export default function TopNavBar({ activeTab, onChangeTab, settings, isAdminLog
           </div>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center space-x-8">
+          <div className="hidden md:flex items-center space-x-6">
             <div className="flex space-x-6">
               {navItems.map((item) => {
                 const isActive = activeTab === item.id;
@@ -88,6 +89,17 @@ export default function TopNavBar({ activeTab, onChangeTab, settings, isAdminLog
                 );
               })}
             </div>
+
+            {/* Search Button (Desktop) */}
+            <button
+              onClick={onOpenSearch}
+              className="border border-[#4f4538]/30 hover:border-[#f6c374] text-[#d3c4b3] hover:text-[#f6c374] bg-[#110e09]/70 px-3.5 py-2 rounded-sm font-subheading text-[12px] tracking-widest uppercase transition-all duration-300 flex items-center gap-2 cursor-pointer group shadow-sm hover:scale-105"
+              title="Cari Dokumentasi (Ctrl+K)"
+            >
+              <Search className="w-3.5 h-3.5 text-[#f6c374] group-hover:scale-110 transition-transform" />
+              <span>Cari</span>
+            </button>
+
             <button
               onClick={handleWhatsApp}
               className="bg-[#d8a85c] text-[#110e09] font-subheading text-[12px] tracking-widest uppercase px-5 py-2.5 rounded-sm font-semibold transition-transform hover:scale-[1.04] active:scale-95 duration-300 flex items-center gap-2 shadow-md cursor-pointer"
@@ -96,8 +108,15 @@ export default function TopNavBar({ activeTab, onChangeTab, settings, isAdminLog
             </button>
           </div>
 
-          {/* Mobile Menu Button */}
-          <div className="flex md:hidden items-center gap-4">
+          {/* Mobile Action Buttons */}
+          <div className="flex md:hidden items-center gap-2 sm:gap-3">
+            <button
+              onClick={onOpenSearch}
+              className="bg-[#110e09] border border-[#4f4538]/30 text-[#f6c374] p-2 rounded-sm transition-transform active:scale-95"
+              title="Cari Dokumentasi"
+            >
+              <Search className="w-4 h-4" />
+            </button>
             <button
               onClick={handleWhatsApp}
               className="bg-[#d8a85c] text-[#110e09] p-2 rounded-sm transition-transform active:scale-95"
@@ -119,6 +138,17 @@ export default function TopNavBar({ activeTab, onChangeTab, settings, isAdminLog
       {isMobileMenuOpen && (
         <div className="md:hidden bg-[#17130e]/98 backdrop-blur-xl border-b border-[#4f4538]/15 py-4 px-4 space-y-3 absolute top-full left-0 w-full shadow-2xl">
           <div className="flex flex-col space-y-3">
+            {/* Search option in mobile menu */}
+            <button
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                onOpenSearch();
+              }}
+              className="text-left font-subheading text-[14px] tracking-widest uppercase py-2 border-b border-[#4f4538]/20 text-[#f6c374] flex items-center gap-2 font-semibold"
+            >
+              <Search className="w-4 h-4" /> Cari Dokumentasi Foto
+            </button>
+
             {navItems.map((item) => {
               const isActive = activeTab === item.id;
               return (

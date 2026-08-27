@@ -256,7 +256,7 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
   };
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-[#110e09] z-10 select-none">
+    <div className="relative w-full min-h-screen flex flex-col justify-between bg-[#110e09] z-10 select-none overflow-x-hidden">
       
       {/* Background Sync Layers (Atmospheric Cinematic Background) */}
       <div className="absolute inset-0 w-full h-full z-0 overflow-hidden select-none pointer-events-none">
@@ -307,11 +307,11 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
       </div>
 
       {/* Foreground Container */}
-      <div className="relative z-20 w-full h-full flex flex-col justify-between pt-24 pb-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto overflow-hidden">
+      <div className="relative z-20 w-full min-h-screen flex flex-col justify-between pt-24 sm:pt-28 pb-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto overflow-x-hidden">
         
         {/* TOP COMPONENT: Carousel Stage */}
         <div 
-          className="w-full flex-1 flex items-center justify-center relative select-none cursor-grab active:cursor-grabbing"
+          className="w-full flex-1 flex items-center justify-center relative select-none cursor-grab active:cursor-grabbing my-auto py-2 sm:py-4"
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
         >
@@ -327,7 +327,7 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
                 handlePrev();
               }
             }}
-            className="relative w-full h-[320px] sm:h-[460px] flex items-center justify-center"
+            className="relative w-full h-[290px] sm:h-[350px] md:h-[390px] lg:h-[430px] flex items-center justify-center"
             style={{ perspective: 1200, transformStyle: "preserve-3d" }}
           >
             {activeActivities.map((act, index) => {
@@ -361,7 +361,7 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
                       onViewActivity(act.slug);
                     }
                   }}
-                  className="w-[240px] h-[340px] sm:w-[320px] sm:h-[450px] md:w-[350px] md:h-[480px] rounded-[16px] overflow-hidden border border-white/10 shadow-[0_25px_60px_rgba(0,0,0,0.85)] cursor-pointer group select-none flex-shrink-0"
+                  className="w-[210px] h-[290px] sm:w-[260px] sm:h-[350px] md:w-[290px] md:h-[390px] lg:w-[320px] lg:h-[430px] rounded-[16px] overflow-hidden border border-white/10 shadow-[0_25px_60px_rgba(0,0,0,0.85)] cursor-pointer group select-none flex-shrink-0"
                 >
                   {/* Photo Layer */}
                   <img
@@ -376,7 +376,7 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
                   
                   {/* Card category badge floating */}
                   {offset === 0 && (
-                    <div className="absolute bottom-6 left-6 right-6">
+                    <div className="absolute bottom-4 sm:bottom-6 left-4 sm:left-6 right-4 sm:right-6">
                       <span className="font-subheading text-[9px] sm:text-[10px] text-[#f6c374] bg-[#110e09]/80 backdrop-blur border border-white/10 px-2.5 py-1 rounded-full uppercase tracking-wider">
                         {act.category}
                       </span>
@@ -389,18 +389,18 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
         </div>
 
         {/* BOTTOM COMPONENT: Interactive Details & Navigation Controls */}
-        <div className="space-y-6 sm:space-y-8 mt-4">
+        <div className="space-y-4 sm:space-y-6 mt-2 sm:mt-4">
           
           {/* Synchronized Text Entrance section */}
-          <div className="flex flex-col items-center text-center max-w-2xl mx-auto space-y-3 sm:space-y-4">
+          <div className="flex flex-col items-center text-center max-w-2xl mx-auto space-y-2 sm:space-y-3">
             <AnimatePresence mode="wait">
               <motion.div
                 key={currentActivity.id}
-                initial={{ opacity: 0, y: 20, filter: "blur(4px)" }}
+                initial={{ opacity: 0, y: 15, filter: "blur(4px)" }}
                 animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                exit={{ opacity: 0, y: -15, filter: "blur(2px)" }}
-                transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}
-                className="space-y-2 sm:space-y-3 flex flex-col items-center"
+                exit={{ opacity: 0, y: -12, filter: "blur(2px)" }}
+                transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+                className="space-y-2 sm:space-y-2.5 flex flex-col items-center"
               >
                 {/* Category eyebrow */}
                 <span className="font-subheading text-[10px] sm:text-[11px] text-[#f6c374] tracking-[0.25em] uppercase font-bold">
@@ -408,21 +408,21 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
                 </span>
 
                 {/* Main Heading */}
-                <h1 className="font-display text-2xl sm:text-4xl lg:text-5xl font-extrabold text-[#eae1d8] uppercase tracking-wide leading-tight max-w-xl">
+                <h1 className="font-display text-xl sm:text-3xl lg:text-4xl font-extrabold text-[#eae1d8] uppercase tracking-wide leading-tight max-w-xl">
                   {currentActivity.title}
                 </h1>
 
                 {/* Description Text */}
-                <p className="font-body text-xs sm:text-sm text-[#d3c4b3]/90 leading-relaxed max-w-lg">
+                <p className="font-body text-xs sm:text-sm text-[#d3c4b3]/90 leading-relaxed max-w-lg line-clamp-3 sm:line-clamp-none">
                   {currentActivity.description}
                 </p>
 
                 {/* Call-to-actions buttons */}
-                <div className="pt-2 flex flex-wrap gap-3 sm:gap-4 justify-center items-center">
+                <div className="pt-1.5 flex flex-wrap gap-2.5 sm:gap-4 justify-center items-center">
                   {currentActivity.slug && (
                     <button
                       onClick={() => onViewActivity(currentActivity.slug)}
-                      className="bg-[#d8a85c] hover:bg-[#eae1d8] text-[#110e09] font-subheading text-[10px] tracking-widest uppercase py-2.5 px-6 rounded-sm font-semibold transition-all duration-300 flex items-center gap-2 cursor-pointer shadow-lg"
+                      className="bg-[#d8a85c] hover:bg-[#eae1d8] text-[#110e09] font-subheading text-[10px] sm:text-[11px] tracking-widest uppercase py-2.5 px-6 rounded-sm font-semibold transition-all duration-300 flex items-center gap-2 cursor-pointer shadow-lg hover:scale-105 active:scale-95"
                     >
                       <Eye className="w-3.5 h-3.5" /> LIHAT DOKUMENTASI
                     </button>
@@ -433,7 +433,7 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
                       href={currentActivity.google_drive_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="bg-[#110e09]/90 border border-white/10 hover:bg-[#eae1d8] hover:text-[#110e09] text-[#eae1d8] font-subheading text-[10px] tracking-widest uppercase py-2.5 px-6 rounded-sm font-semibold transition-all duration-300 flex items-center gap-2 cursor-pointer shadow-lg"
+                      className="bg-[#110e09]/90 border border-white/10 hover:bg-[#eae1d8] hover:text-[#110e09] text-[#eae1d8] font-subheading text-[10px] sm:text-[11px] tracking-widest uppercase py-2.5 px-6 rounded-sm font-semibold transition-all duration-300 flex items-center gap-2 cursor-pointer shadow-lg hover:scale-105 active:scale-95"
                     >
                       <FolderOpen className="w-3.5 h-3.5 text-[#f6c374]" /> LIHAT SEMUA FOTO
                     </a>
@@ -444,13 +444,13 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
           </div>
 
           {/* Navigation Control Area */}
-          <div className="flex flex-col sm:flex-row justify-between items-center gap-4 border-t border-white/10 pt-4 sm:pt-6">
+          <div className="flex flex-row justify-between items-center gap-4 border-t border-white/10 pt-3 sm:pt-4">
             
             {/* Index Counter Display */}
-            <div className="flex items-baseline gap-2 font-display text-2xl sm:text-3xl text-white/30">
+            <div className="flex items-baseline gap-1.5 font-display text-xl sm:text-2xl text-white/30">
               <span className="text-[#f6c374] font-bold">0{currentIndex + 1}</span>
-              <span className="text-sm">/</span>
-              <span className="text-sm text-[#eae1d8]/50">0{totalSlides}</span>
+              <span className="text-xs sm:text-sm">/</span>
+              <span className="text-xs sm:text-sm text-[#eae1d8]/50">0{totalSlides}</span>
             </div>
 
             {/* Slider progress bar line */}
@@ -464,7 +464,7 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
             </div>
 
             {/* Navigation Button Controls */}
-            <div className="flex gap-4">
+            <div className="flex gap-2.5 sm:gap-3">
               <button
                 disabled={totalSlides <= 1}
                 onClick={() => {
@@ -473,9 +473,9 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
                   setTimeout(() => setIsHovered(false), 3000);
                 }}
                 aria-label="Kegiatan Sebelumnya"
-                className="w-10 h-10 sm:w-12 h-12 rounded-full border border-white/10 disabled:opacity-20 disabled:pointer-events-none flex items-center justify-center text-[#eae1d8] hover:bg-white/5 hover:border-[#f6c374] hover:text-[#f6c374] active:scale-95 transition-all duration-300 cursor-pointer"
+                className="w-9 h-9 sm:w-11 sm:h-11 rounded-full border border-white/10 disabled:opacity-20 disabled:pointer-events-none flex items-center justify-center text-[#eae1d8] hover:bg-white/5 hover:border-[#f6c374] hover:text-[#f6c374] active:scale-95 transition-all duration-300 cursor-pointer"
               >
-                <ArrowLeft className="w-4 h-4 sm:w-5 h-5" />
+                <ArrowLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </button>
               <button
                 disabled={totalSlides <= 1}
@@ -485,9 +485,9 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
                   setTimeout(() => setIsHovered(false), 3000);
                 }}
                 aria-label="Kegiatan Berikutnya"
-                className="w-10 h-10 sm:w-12 h-12 rounded-full border border-white/10 disabled:opacity-20 disabled:pointer-events-none flex items-center justify-center text-[#eae1d8] hover:bg-white/5 hover:border-[#f6c374] hover:text-[#f6c374] active:scale-95 transition-all duration-300 cursor-pointer"
+                className="w-9 h-9 sm:w-11 sm:h-11 rounded-full border border-white/10 disabled:opacity-20 disabled:pointer-events-none flex items-center justify-center text-[#eae1d8] hover:bg-white/5 hover:border-[#f6c374] hover:text-[#f6c374] active:scale-95 transition-all duration-300 cursor-pointer"
               >
-                <ArrowRight className="w-4 h-4 sm:w-5 h-5" />
+                <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </button>
             </div>
           </div>

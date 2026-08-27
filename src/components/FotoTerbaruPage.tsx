@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { Activity, Photo } from "../types.js";
 import { motion, AnimatePresence } from "motion/react";
-import { Image as ImageIcon, Eye, Tag, Calendar, Search, ExternalLink } from "lucide-react";
+import { Image as ImageIcon, Eye, Tag, Calendar, Search, X, RotateCcw } from "lucide-react";
 
 interface FotoTerbaruPageProps {
   activities: Activity[];
@@ -14,37 +14,82 @@ export default function FotoTerbaruPage({
   activities,
   photos,
   onViewActivity,
-  onOpenLightbox
+  onOpenLightbox,
 }: FotoTerbaruPageProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>("Semua");
+  const [selectedYear, setSelectedYear] = useState<string>("Semua");
   const [searchQuery, setSearchQuery] = useState<string>("");
+
+  const getYear = (dateStr?: string) => {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    return isNaN(d.getFullYear()) ? "" : d.getFullYear().toString();
+  };
 
   // Map activities by ID for instant O(1) lookups
   const activityMap = useMemo(() => {
-    return new Map(activities.map(act => [act.id, act]));
+    return new Map(activities.map((act) => [act.id, act]));
   }, [activities]);
 
   // Extract unique categories of published activities
   const categories = useMemo(() => {
     const list = new Set(
       activities
-        .filter(act => act.status === "published")
-        .map(act => act.category)
+        .filter((act) => act.status === "published")
+        .map((act) => act.category)
+        .filter(Boolean)
     );
     return ["Semua", ...Array.from(list)];
   }, [activities]);
 
-  // Filter photos dynamically based on search, category, and whether parent activity is published
+  // Extract unique years
+  const years = useMemo(() => {
+    const yearsSet = new Set<string>();
+
+    photos.forEach((photo) => {
+      const y = getYear(photo.created_at);
+      if (y && parseInt(y) > 2000 && parseInt(y) < 2100) yearsSet.add(y);
+    });
+
+    activities.forEach((act) => {
+      const y = getYear(act.date);
+      if (y && parseInt(y) > 2000 && parseInt(y) < 2100) yearsSet.add(y);
+    });
+
+    const sorted = Array.from(yearsSet).sort((a, b) => parseInt(b) - parseInt(a));
+    return ["Semua", ...sorted];
+  }, [photos, activities]);
+
+  // Filter photos dynamically based on search, category, year, and whether parent activity is published
   const filteredPhotos = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+
     const validPhotos = photos.filter((photo) => {
       const act = activityMap.get(photo.activity_id);
       if (!act || act.status !== "published") return false;
 
-      const matchesCategory = selectedCategory === "Semua" || act.category === selectedCategory;
-      const matchesSearch = photo.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                            act.title.toLowerCase().includes(searchQuery.toLowerCase());
-      
-      return matchesCategory && matchesSearch;
+      const photoYear = getYear(photo.created_at) || getYear(act.date);
+
+      // Category check
+      if (selectedCategory !== "Semua" && act.category !== selectedCategory) {
+        return false;
+      }
+
+      // Year check
+      if (selectedYear !== "Semua" && photoYear !== selectedYear) {
+        return false;
+      }
+
+      // Search query check
+      if (query) {
+        const titleMatch = (photo.title || "").toLowerCase().includes(query);
+        const actMatch = (act.title || "").toLowerCase().includes(query);
+        const catMatch = (act.category || "").toLowerCase().includes(query);
+        const yearMatch = photoYear.includes(query);
+        if (!titleMatch && !actMatch && !catMatch && !yearMatch) return false;
+      }
+
+      return true;
     });
 
     // Sort by created_at descending (newest first)
@@ -53,11 +98,19 @@ export default function FotoTerbaruPage({
       const dateB = new Date(b.created_at).getTime();
       return dateB - dateA;
     });
-  }, [photos, activityMap, selectedCategory, searchQuery]);
+  }, [photos, activityMap, selectedCategory, selectedYear, searchQuery]);
+
+  const isFiltered = searchQuery !== "" || selectedYear !== "Semua" || selectedCategory !== "Semua";
+
+  const handleResetFilters = () => {
+    setSearchQuery("");
+    setSelectedYear("Semua");
+    setSelectedCategory("Semua");
+  };
 
   return (
     <div className="bg-[#17130e] text-[#eae1d8] min-h-screen py-32 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto space-y-16">
+      <div className="max-w-7xl mx-auto space-y-12">
         
         {/* Header */}
         <div className="space-y-4 max-w-3xl">
@@ -73,58 +126,117 @@ export default function FotoTerbaruPage({
         </div>
 
         {/* Filter Bar */}
-        <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-6 border-b border-[#4f4538]/20 pb-6">
-          
-          {/* Category Pills */}
-          <div className="flex flex-wrap gap-2 max-w-full overflow-x-auto pb-1 scrollbar-none">
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`font-subheading text-[11px] tracking-wider uppercase px-4 py-2 border transition-all duration-300 rounded-sm cursor-pointer whitespace-nowrap ${
-                  selectedCategory === cat
-                    ? "border-[#f6c374] bg-[#f6c374]/10 text-[#f6c374] font-semibold"
-                    : "border-[#4f4538]/20 hover:border-[#9b8f7f] text-[#d3c4b3]"
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
+        <div className="bg-[#110e09] border border-[#4f4538]/20 rounded-md p-4 sm:p-6 space-y-4 shadow-xl">
+          <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
+            
+            {/* Search Box */}
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9b8f7f]" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Cari foto, kegiatan, atau tahun..."
+                className="w-full bg-[#17130e] border border-[#4f4538]/40 rounded-sm py-2 px-10 font-body text-xs sm:text-sm text-[#eae1d8] placeholder-[#9b8f7f] focus:outline-none focus:border-[#f6c374] transition-colors"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9b8f7f] hover:text-[#eae1d8]"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Results count & reset */}
+            <div className="flex items-center gap-4 self-end md:self-auto text-xs text-[#9b8f7f]">
+              <span className="font-subheading text-[11px] uppercase tracking-wider text-[#f6c374]">
+                Menampilkan {filteredPhotos.length} foto
+              </span>
+              {isFiltered && (
+                <button
+                  onClick={handleResetFilters}
+                  className="flex items-center gap-1 text-[11px] font-subheading uppercase text-[#d3c4b3] hover:text-[#f6c374]"
+                >
+                  <RotateCcw className="w-3 h-3" /> Reset
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Search Box */}
-          <div className="relative w-full md:w-80 shrink-0">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9b8f7f]" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari foto atau kegiatan..."
-              className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded-sm py-2 px-10 font-body text-xs text-[#eae1d8] placeholder-[#9b8f7f] focus:outline-none focus:border-[#f6c374] transition-colors"
-            />
+          {/* Year and Category Pills */}
+          <div className="flex flex-col lg:flex-row gap-3 pt-3 border-t border-[#4f4538]/15 justify-between items-start lg:items-center">
+            {/* Years */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-subheading text-[11px] uppercase tracking-widest text-[#9b8f7f] flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5 text-[#f6c374]" /> Tahun:
+              </span>
+              {years.map((year) => (
+                <button
+                  key={year}
+                  onClick={() => setSelectedYear(year)}
+                  className={`font-subheading text-[11px] tracking-wider uppercase px-3 py-1.5 border transition-all duration-300 rounded-sm cursor-pointer ${
+                    selectedYear === year
+                      ? "border-[#f6c374] bg-[#f6c374] text-[#110e09] font-bold"
+                      : "border-[#4f4538]/30 hover:border-[#9b8f7f] bg-[#17130e] text-[#d3c4b3]"
+                  }`}
+                >
+                  {year === "Semua" ? "Semua Tahun" : year}
+                </button>
+              ))}
+            </div>
+
+            {/* Categories */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-subheading text-[11px] uppercase tracking-widest text-[#9b8f7f] flex items-center gap-1">
+                <Tag className="w-3.5 h-3.5 text-[#f6c374]" /> Kategori:
+              </span>
+              {categories.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`font-subheading text-[11px] tracking-wider uppercase px-3 py-1.5 border transition-all duration-300 rounded-sm cursor-pointer ${
+                    selectedCategory === cat
+                      ? "border-[#f6c374] bg-[#f6c374]/15 text-[#f6c374] font-semibold"
+                      : "border-[#4f4538]/30 hover:border-[#9b8f7f] bg-[#17130e] text-[#d3c4b3]"
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
         {/* CSS Columns Masonry Grid */}
         <AnimatePresence mode="wait">
           <motion.div
-            key={`${selectedCategory}-${searchQuery}`}
+            key={`${selectedCategory}-${selectedYear}-${searchQuery}`}
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -15 }}
             transition={{ duration: 0.5 }}
           >
             {filteredPhotos.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-32 text-center space-y-6">
-                <ImageIcon className="w-12 h-12 text-[#f6c374]/40" />
-                <div className="space-y-2">
-                  <h3 className="font-display text-lg font-bold text-[#f6c374]">
-                    BELUM ADA FOTO TERBARU
+              <div className="flex flex-col items-center justify-center py-24 text-center space-y-4 bg-[#110e09] border border-[#4f4538]/20 rounded-md p-8">
+                <Search className="w-12 h-12 text-[#9b8f7f]/30" />
+                <div className="space-y-1">
+                  <h3 className="font-display text-lg font-bold text-[#eae1d8]">
+                    Dokumentasi tidak ditemukan
                   </h3>
-                  <p className="font-body text-xs text-[#9b8f7f] max-w-md mx-auto">
-                    Arsip foto kosong untuk kriteria filter saat ini, atau belum dikaitkan dengan kegiatan yang dipublikasikan.
+                  <p className="font-body text-xs text-[#9b8f7f] max-w-sm mx-auto">
+                    Coba gunakan kata kunci atau tahun yang berbeda.
                   </p>
                 </div>
+                {isFiltered && (
+                  <button
+                    onClick={handleResetFilters}
+                    className="mt-2 bg-[#17130e] border border-[#f6c374]/30 text-[#f6c374] hover:bg-[#f6c374] hover:text-[#110e09] font-subheading text-[11px] uppercase tracking-wider px-4 py-2 rounded-sm transition-all"
+                  >
+                    Reset Filter
+                  </button>
+                )}
               </div>
             ) : (
               <div className="columns-1 sm:columns-2 md:columns-3 lg:columns-4 gap-6 [column-fill:_balance] space-y-6">
@@ -142,7 +254,7 @@ export default function FotoTerbaruPage({
                       >
                         <img
                           src={photo.image_url}
-                          alt={photo.title}
+                          alt={photo.title || ""}
                           className="w-full object-cover group-hover:scale-[1.03] transition-cinematic duration-700"
                           referrerPolicy="no-referrer"
                         />
@@ -158,19 +270,27 @@ export default function FotoTerbaruPage({
                           </h4>
                           {parentActivity && (
                             <p className="font-body text-[10px] text-[#f6c374] uppercase tracking-wider line-clamp-1">
-                              {parentActivity.title}
+                              {parentActivity.title} • {getYear(photo.created_at) || getYear(parentActivity.date)}
                             </p>
                           )}
                         </div>
 
-                        {parentActivity && (
+                        <div className="flex items-center justify-between pt-1 border-t border-[#4f4538]/10">
+                          {parentActivity && (
+                            <button
+                              onClick={() => onViewActivity(parentActivity.slug)}
+                              className="text-[9px] font-subheading uppercase tracking-widest text-[#d3c4b3] hover:text-[#f6c374] transition-colors flex items-center gap-1"
+                            >
+                              <Eye className="w-3 h-3 text-[#f6c374]" /> Buka Kegiatan
+                            </button>
+                          )}
                           <button
-                            onClick={() => onViewActivity(parentActivity.slug)}
-                            className="w-full py-2 px-3 border border-[#4f4538]/30 hover:border-[#f6c374] text-[9px] tracking-widest uppercase font-subheading text-[#eae1d8] hover:text-[#f6c374] hover:bg-[#f6c374]/5 rounded-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                            onClick={() => onOpenLightbox(filteredPhotos, pIdx)}
+                            className="text-[9px] font-subheading uppercase tracking-widest text-[#9b8f7f] hover:text-[#eae1d8] transition-colors ml-auto"
                           >
-                            <ExternalLink className="w-3 h-3" /> LIHAT KEGIATAN
+                            Perbesar
                           </button>
-                        )}
+                        </div>
                       </div>
                     </div>
                   );
