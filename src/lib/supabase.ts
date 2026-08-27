@@ -7,7 +7,7 @@ const supabaseUrl = rawUrl && rawUrl.trim() ? rawUrl.trim() : "https://placehold
 const supabaseAnonKey = rawKey && rawKey.trim() ? rawKey.trim() : "placeholder-anon-key";
 
 if (!rawUrl || !rawKey) {
-  console.warn("Supabase credentials missing. GALERI EMKA is running with local fallback db.json data.");
+  console.warn("Supabase credentials missing. GALERI EMKA is running with safe local fallbackData.");
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);

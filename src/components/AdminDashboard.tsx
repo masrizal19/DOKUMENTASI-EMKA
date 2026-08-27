@@ -21,7 +21,7 @@ import {
   FileText
 } from "lucide-react";
 import { supabase } from "../lib/supabase.js";
-import fallbackData from "../../db.json";
+import { fallbackData } from "../lib/fallbackData.js";
 
 interface AdminDashboardProps {
   token: string;

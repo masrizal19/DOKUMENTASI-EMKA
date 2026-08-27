@@ -12,7 +12,7 @@ import Lightbox from "./components/Lightbox.js";
 import Notification from "./components/Notification.js";
 import { Calendar, Tag, Shield, Clock, BookOpen, MapPin, Mail, Phone, ExternalLink, Loader2 } from "lucide-react";
 import { supabase } from "./lib/supabase.js";
-import fallbackData from "../db.json";
+import { fallbackData } from "./lib/fallbackData.js";
 
 export default function App() {
   // Public data state
