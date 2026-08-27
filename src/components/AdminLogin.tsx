@@ -11,28 +11,27 @@ interface AdminLoginProps {
 
 export default function AdminLogin({ onLoginSuccess, onBackToHome, onShowToast }: AdminLoginProps) {
   const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [pin, setPin] = useState("");
+  const [showPin, setShowPin] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isError, setIsError] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username.trim() || !password) return;
+    if (!username.trim() || !pin) return;
 
     setIsLoading(true);
     setIsError(false);
 
     try {
-      // 1. Call RPC verify_admin_login (with case-insensitive LOWER() comparison)
+      // 1. Call RPC verify_admin_login (with input_username and input_pin)
       const { data, error } = await supabase.rpc("verify_admin_login", {
         input_username: username.trim(),
-        input_password: password
+        input_pin: pin
       });
 
       if (error) {
         console.error("Supabase RPC error:", error);
-        // Fallback or handle connection error
         setIsError(true);
         onShowToast("Tidak dapat terhubung ke server. Silakan coba lagi.", "error");
       } else if (data === true) {
@@ -40,7 +39,7 @@ export default function AdminLogin({ onLoginSuccess, onBackToHome, onShowToast }
         onLoginSuccess("emka_admin_session_active");
       } else {
         setIsError(true);
-        onShowToast("Username atau password salah. Silakan coba lagi.", "error");
+        onShowToast("Username atau PIN salah. Silakan coba lagi.", "error");
       }
     } catch (err) {
       console.error("Login exception:", err);
@@ -124,34 +123,34 @@ export default function AdminLogin({ onLoginSuccess, onBackToHome, onShowToast }
 
             {/* Password/PIN Field */}
             <div className="space-y-2">
-              <label htmlFor="password-input" className="block font-subheading text-[10px] tracking-widest uppercase text-[#9b8f7f]">
-                PASSWORD / PIN
+              <label htmlFor="pin-input" className="block font-subheading text-[10px] tracking-widest uppercase text-[#9b8f7f]">
+                PIN
               </label>
               <div className="relative">
                 <input
-                  id="password-input"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
+                  id="pin-input"
+                  type={showPin ? "text" : "password"}
+                  value={pin}
                   onChange={(e) => {
-                    setPassword(e.target.value);
+                    setPin(e.target.value);
                     if (isError) setIsError(false);
                   }}
-                  placeholder="Masukkan Password / PIN"
+                  placeholder="Masukkan PIN"
                   className="w-full bg-[#17130e] border border-[#4f4538]/30 rounded-sm py-3 pl-4 pr-12 font-body text-sm text-[#eae1d8] placeholder-[#4f4538] focus:outline-none focus:border-[#f6c374] transition-colors tracking-widest"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
+                  onClick={() => setShowPin(!showPin)}
                   className="absolute inset-y-0 right-0 pr-4 flex items-center text-[#9b8f7f] hover:text-[#f6c374] transition-colors focus:outline-none"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
             <button
               type="submit"
-              disabled={isLoading || !username || !password}
+              disabled={isLoading || !username || !pin}
               className="w-full bg-[#d8a85c] disabled:bg-[#39342e] disabled:text-[#9b8f7f] disabled:cursor-not-allowed hover:bg-[#eae1d8] text-[#110e09] font-subheading text-xs tracking-widest uppercase py-3.5 rounded-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer shadow-lg"
             >
               {isLoading ? (

@@ -91,9 +91,11 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS admin_credentials (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   username TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
+  pin_hash TEXT NOT NULL,
+  active BOOLEAN DEFAULT true NOT NULL,
   is_active BOOLEAN DEFAULT true NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 -- Enable RLS on admin_credentials
@@ -103,20 +105,20 @@ ALTER TABLE admin_credentials ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Deny all public access to admin_credentials" ON admin_credentials;
 CREATE POLICY "Deny all public access to admin_credentials" ON admin_credentials FOR ALL TO public USING (false);
 
--- Insert default admin account if not exists: Username = 'ADMIN', Password = '1902' (using blowfish crypt)
-INSERT INTO admin_credentials (username, password_hash, is_active)
-VALUES ('ADMIN', crypt('1902', gen_salt('bf')), true)
+-- Insert default admin account if not exists: Username = 'ADMIN', PIN = '1902' (using blowfish crypt)
+INSERT INTO admin_credentials (username, pin_hash, active, is_active)
+VALUES ('ADMIN', crypt('1902', gen_salt('bf')), true, true)
 ON CONFLICT (username) DO NOTHING;
 
 -- Secure RPC to verify login credentials
-CREATE OR REPLACE FUNCTION verify_admin_login(input_username TEXT, input_password TEXT)
+CREATE OR REPLACE FUNCTION verify_admin_login(input_username TEXT, input_pin TEXT)
 RETURNS BOOLEAN AS $$
 DECLARE
   is_valid BOOLEAN := false;
 BEGIN
-  SELECT (password_hash = crypt(input_password, password_hash)) INTO is_valid
+  SELECT (pin_hash = crypt(input_pin, pin_hash)) INTO is_valid
   FROM admin_credentials
-  WHERE LOWER(username) = LOWER(input_username) AND is_active = true;
+  WHERE LOWER(username) = LOWER(input_username) AND active = true AND is_active = true;
   
   RETURN COALESCE(is_valid, false);
 END;
