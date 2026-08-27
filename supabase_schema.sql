@@ -124,3 +124,27 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+GRANT EXECUTE ON FUNCTION public.verify_admin_login(TEXT, TEXT) TO anon, authenticated;
+
+-- Secure RPC to verify login credentials via PIN
+CREATE OR REPLACE FUNCTION verify_admin_pin(p_username TEXT, p_pin TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_pin_hash TEXT;
+BEGIN
+  SELECT pin_hash INTO v_pin_hash
+  FROM public.admin_credentials
+  WHERE UPPER(username) = UPPER(TRIM(p_username))
+    AND COALESCE(is_active, active, true) = true
+  LIMIT 1;
+  
+  IF v_pin_hash IS NULL THEN
+    RETURN false;
+  END IF;
+  
+  RETURN crypt(p_pin, v_pin_hash) = v_pin_hash;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION public.verify_admin_pin(TEXT, TEXT) TO anon, authenticated;
+
