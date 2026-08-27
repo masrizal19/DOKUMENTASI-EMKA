@@ -22,24 +22,21 @@ export default function AdminLogin({ onLoginSuccess, onBackToHome, onShowToast }
     setIsError(false);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: "admin@multikarya.sch.id",
-        password: pin
-      });
+      const { data, error } = await supabase.rpc("verify_admin_pin", { input_pin: pin });
 
       if (error) {
         setIsError(true);
-        onShowToast("PIN atau kredensial yang dimasukkan salah. Silakan coba lagi.", "error");
-      } else if (data.session) {
+        onShowToast("Tidak dapat terhubung ke server. Silakan coba lagi.", "error");
+      } else if (data === true) {
         onShowToast("Login Berhasil! Selamat datang di dashboard admin.", "success");
-        onLoginSuccess(data.session.access_token);
+        onLoginSuccess("emka_admin_session_active");
       } else {
         setIsError(true);
-        onShowToast("Gagal memulai sesi. Silakan coba lagi.", "error");
+        onShowToast("PIN atau kredensial yang dimasukkan salah. Silakan coba lagi.", "error");
       }
     } catch (err) {
       setIsError(true);
-      onShowToast("Terjadi kesalahan jaringan atau koneksi Supabase.", "error");
+      onShowToast("Tidak dapat terhubung ke server. Silakan coba lagi.", "error");
     } finally {
       setIsLoading(false);
     }

@@ -27,7 +27,7 @@ export default function App() {
   const [prevTab, setPrevTab] = useState<string>("beranda");
 
   // Admin session state
-  const [adminToken, setAdminToken] = useState<string | null>(localStorage.getItem("admin_token"));
+  const [adminToken, setAdminToken] = useState<string | null>(sessionStorage.getItem("admin_token"));
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
 
   // Lightbox state
@@ -157,10 +157,18 @@ export default function App() {
   // 2. Verify Admin Token on load
   const verifyAdminToken = async () => {
     try {
+      const localToken = sessionStorage.getItem("admin_token");
+      if (localToken === "emka_admin_session_active") {
+        setIsAdminLoggedIn(true);
+        setAdminToken("emka_admin_session_active");
+        return;
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
       if (session && session.user && session.user.email === "admin@multikarya.sch.id") {
         setIsAdminLoggedIn(true);
         setAdminToken(session.access_token);
+        sessionStorage.setItem("admin_token", session.access_token);
       } else {
         setIsAdminLoggedIn(false);
         setAdminToken(null);
@@ -226,15 +234,19 @@ export default function App() {
   };
 
   const handleAdminLogin = (token: string) => {
-    localStorage.setItem("admin_token", token);
+    sessionStorage.setItem("admin_token", token);
     setAdminToken(token);
     setIsAdminLoggedIn(true);
     navigateTo("admin");
   };
 
   const handleAdminLogout = async () => {
-    await supabase.auth.signOut();
-    localStorage.removeItem("admin_token");
+    try {
+      await supabase.auth.signOut();
+    } catch (_) {
+      // safe fallback if not fully authenticated with traditional auth
+    }
+    sessionStorage.removeItem("admin_token");
     setAdminToken(null);
     setIsAdminLoggedIn(false);
     showToast("Berhasil keluar dari dashboard admin.", "success");
