@@ -47,7 +47,7 @@ export default function App() {
     setIsFetchingData(true);
     
     // Helper to run promise with timeout
-    async function fetchWithTimeout(promise: any, timeoutMs = 3500): Promise<any> {
+    async function fetchWithTimeout(promise: any, timeoutMs = 8000): Promise<any> {
       let timeoutId: any;
       const timeoutPromise = new Promise<null>((resolve) => {
         timeoutId = setTimeout(() => {
@@ -90,7 +90,7 @@ export default function App() {
         .eq("id", "default")
         .maybeSingle();
 
-      const settingsResult = await fetchWithTimeout(settingsPromise, 3500);
+      const settingsResult = await fetchWithTimeout(settingsPromise, 8000);
       
       let activeSet: Settings | null = null;
       if (settingsResult && settingsResult.data) {
@@ -134,7 +134,7 @@ export default function App() {
         .select("id, title, slug, category, date, description, cover_image, background_video, google_drive_url, published, created_at, updated_at")
         .order("date", { ascending: false });
 
-      const activitiesResult = await fetchWithTimeout(activitiesPromise, 3500);
+      const activitiesResult = await fetchWithTimeout(activitiesPromise, 8000);
 
       let mappedActivities: Activity[] = [];
       if (activitiesResult && activitiesResult.data) {
@@ -160,7 +160,7 @@ export default function App() {
         .select("id, activity_id, caption, url, sort_order, created_at")
         .order("sort_order", { ascending: true });
 
-      const photosResult = await fetchWithTimeout(photosPromise, 3500);
+      const photosResult = await fetchWithTimeout(photosPromise, 8000);
 
       let mappedPhotos: Photo[] = [];
       if (photosResult && photosResult.data) {

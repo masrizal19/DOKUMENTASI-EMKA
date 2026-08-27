@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion } from "motion/react";
-import { Lock, ArrowLeft, Loader2 } from "lucide-react";
+import { Lock, ArrowLeft, Loader2, Eye, EyeOff, User } from "lucide-react";
 import { supabase } from "../lib/supabase.js";
 
 interface AdminLoginProps {
@@ -10,21 +10,29 @@ interface AdminLoginProps {
 }
 
 export default function AdminLogin({ onLoginSuccess, onBackToHome, onShowToast }: AdminLoginProps) {
-  const [pin, setPin] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isError, setIsError] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pin) return;
+    if (!username.trim() || !password) return;
 
     setIsLoading(true);
     setIsError(false);
 
     try {
-      const { data, error } = await supabase.rpc("verify_admin_pin", { input_pin: pin });
+      // 1. Call RPC verify_admin_login (with case-insensitive LOWER() comparison)
+      const { data, error } = await supabase.rpc("verify_admin_login", {
+        input_username: username.trim(),
+        input_password: password
+      });
 
       if (error) {
+        console.error("Supabase RPC error:", error);
+        // Fallback or handle connection error
         setIsError(true);
         onShowToast("Tidak dapat terhubung ke server. Silakan coba lagi.", "error");
       } else if (data === true) {
@@ -32,9 +40,10 @@ export default function AdminLogin({ onLoginSuccess, onBackToHome, onShowToast }
         onLoginSuccess("emka_admin_session_active");
       } else {
         setIsError(true);
-        onShowToast("PIN atau kredensial yang dimasukkan salah. Silakan coba lagi.", "error");
+        onShowToast("Username atau password salah. Silakan coba lagi.", "error");
       }
     } catch (err) {
+      console.error("Login exception:", err);
       setIsError(true);
       onShowToast("Tidak dapat terhubung ke server. Silakan coba lagi.", "error");
     } finally {
@@ -83,36 +92,66 @@ export default function AdminLogin({ onLoginSuccess, onBackToHome, onShowToast }
               <span>Admin</span>
             </h1>
             <p className="font-body text-xs text-[#9b8f7f] max-w-xs mx-auto leading-relaxed">
-              Masukkan PIN Keamanan untuk mengelola konten Galeri Emka.
+              Masukkan kredensial keamanan untuk mengelola konten Galeri Emka.
             </p>
           </div>
 
           {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-6 text-left">
+          <form onSubmit={handleSubmit} className="space-y-5 text-left">
+            {/* Username Field */}
             <div className="space-y-2">
-              <label htmlFor="pin-input" className="block font-subheading text-[10px] tracking-widest uppercase text-[#9b8f7f]">
-                PIN KREDENSIAL
+              <label htmlFor="username-input" className="block font-subheading text-[10px] tracking-widest uppercase text-[#9b8f7f]">
+                USERNAME
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#9b8f7f]">
+                  <User className="w-4 h-4" />
+                </div>
+                <input
+                  id="username-input"
+                  type="text"
+                  value={username}
+                  onChange={(e) => {
+                    setUsername(e.target.value);
+                    if (isError) setIsError(false);
+                  }}
+                  placeholder="Masukkan Username"
+                  autoFocus
+                  className="w-full bg-[#17130e] border border-[#4f4538]/30 rounded-sm py-3 pl-10 pr-4 font-body text-sm text-[#eae1d8] placeholder-[#4f4538] focus:outline-none focus:border-[#f6c374] transition-colors"
+                />
+              </div>
+            </div>
+
+            {/* Password/PIN Field */}
+            <div className="space-y-2">
+              <label htmlFor="password-input" className="block font-subheading text-[10px] tracking-widest uppercase text-[#9b8f7f]">
+                PASSWORD / PIN
               </label>
               <div className="relative">
                 <input
-                  id="pin-input"
-                  type="password"
-                  value={pin}
+                  id="password-input"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
                   onChange={(e) => {
-                    setPin(e.target.value);
+                    setPassword(e.target.value);
                     if (isError) setIsError(false);
                   }}
-                  placeholder="Masukkan PIN Anda"
-                  autoFocus
-                  maxLength={10}
-                  className="w-full bg-[#17130e] border border-[#4f4538]/30 rounded-sm py-3 px-4 font-body text-sm text-[#eae1d8] placeholder-[#4f4538] focus:outline-none focus:border-[#f6c374] transition-colors tracking-widest"
+                  placeholder="Masukkan Password / PIN"
+                  className="w-full bg-[#17130e] border border-[#4f4538]/30 rounded-sm py-3 pl-4 pr-12 font-body text-sm text-[#eae1d8] placeholder-[#4f4538] focus:outline-none focus:border-[#f6c374] transition-colors tracking-widest"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-4 flex items-center text-[#9b8f7f] hover:text-[#f6c374] transition-colors focus:outline-none"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
             <button
               type="submit"
-              disabled={isLoading || !pin}
+              disabled={isLoading || !username || !password}
               className="w-full bg-[#d8a85c] disabled:bg-[#39342e] disabled:text-[#9b8f7f] disabled:cursor-not-allowed hover:bg-[#eae1d8] text-[#110e09] font-subheading text-xs tracking-widest uppercase py-3.5 rounded-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer shadow-lg"
             >
               {isLoading ? (

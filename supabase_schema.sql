@@ -84,3 +84,41 @@ CREATE POLICY "Allow admin write access to activity_media" ON activity_media FOR
 
 DROP POLICY IF EXISTS "Allow admin write access to latest_photos" ON latest_photos;
 CREATE POLICY "Allow admin write access to latest_photos" ON latest_photos FOR ALL TO authenticated USING (true);
+
+-- 8. Create admin_credentials table & verify_admin_login function
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TABLE IF NOT EXISTS admin_credentials (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  username TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  is_active BOOLEAN DEFAULT true NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Enable RLS on admin_credentials
+ALTER TABLE admin_credentials ENABLE ROW LEVEL SECURITY;
+
+-- Block public read/write access to credentials except through the RPC
+DROP POLICY IF EXISTS "Deny all public access to admin_credentials" ON admin_credentials;
+CREATE POLICY "Deny all public access to admin_credentials" ON admin_credentials FOR ALL TO public USING (false);
+
+-- Insert default admin account if not exists: Username = 'ADMIN', Password = '1902' (using blowfish crypt)
+INSERT INTO admin_credentials (username, password_hash, is_active)
+VALUES ('ADMIN', crypt('1902', gen_salt('bf')), true)
+ON CONFLICT (username) DO NOTHING;
+
+-- Secure RPC to verify login credentials
+CREATE OR REPLACE FUNCTION verify_admin_login(input_username TEXT, input_password TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+  is_valid BOOLEAN := false;
+BEGIN
+  SELECT (password_hash = crypt(input_password, password_hash)) INTO is_valid
+  FROM admin_credentials
+  WHERE LOWER(username) = LOWER(input_username) AND is_active = true;
+  
+  RETURN COALESCE(is_valid, false);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
