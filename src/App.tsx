@@ -16,10 +16,10 @@ import { fallbackData } from "./lib/fallbackData.js";
 
 export default function App() {
   // Public data state
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [photos, setPhotos] = useState<Photo[]>([]);
-  const [settings, setSettings] = useState<Settings | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [activities, setActivities] = useState<Activity[]>((fallbackData.activities || []) as Activity[]);
+  const [photos, setPhotos] = useState<Photo[]>((fallbackData.photos || []) as Photo[]);
+  const [settings, setSettings] = useState<Settings | null>((fallbackData.settings || null) as Settings | null);
+  const [isFetchingData, setIsFetchingData] = useState(true);
 
   // Routing state
   const [activeTab, setActiveTab] = useState<"beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "detail-kegiatan" | "admin">("beranda");
@@ -42,18 +42,59 @@ export default function App() {
     setToast({ message, type });
   };
 
-  // 1. Fetch public data
+  // 1. Fetch public data with timeout and caching
   const fetchPublicData = async () => {
+    setIsFetchingData(true);
+    
+    // Helper to run promise with timeout
+    async function fetchWithTimeout(promise: any, timeoutMs = 3500): Promise<any> {
+      let timeoutId: any;
+      const timeoutPromise = new Promise<null>((resolve) => {
+        timeoutId = setTimeout(() => {
+          console.warn(`Supabase request timed out after ${timeoutMs}ms`);
+          resolve(null);
+        }, timeoutMs);
+      });
+      
+      try {
+        const result = await Promise.race([promise, timeoutPromise]);
+        clearTimeout(timeoutId);
+        return result;
+      } catch (err) {
+        clearTimeout(timeoutId);
+        console.error("Supabase query failed:", err);
+        return null;
+      }
+    }
+
     try {
-      // Fetch site settings
-      const { data: settingsData } = await supabase
+      // Try to load cached data from sessionStorage for lightning-fast subsequent loads
+      const cachedActivities = sessionStorage.getItem("emka_cached_activities");
+      const cachedPhotos = sessionStorage.getItem("emka_cached_photos");
+      const cachedSettings = sessionStorage.getItem("emka_cached_settings");
+
+      if (cachedActivities && cachedPhotos && cachedSettings) {
+        try {
+          setActivities(JSON.parse(cachedActivities));
+          setPhotos(JSON.parse(cachedPhotos));
+          setSettings(JSON.parse(cachedSettings));
+          setIsFetchingData(false);
+          // We still fetch fresh data in background silently
+        } catch (_) {}
+      }
+
+      // 1. Fetch site settings with timeout
+      const settingsPromise = supabase
         .from("site_settings")
-        .select("*")
+        .select("site_name, logo, whatsapp, accent_color, school_name, address, city, province, country, email, phone, tata_usaha, whatsapp_title, whatsapp_description, about_title, about_desc1, about_desc2, about_photo, vision_title, vision_content, missions, hero_label, hero_title, hero_description, hero_image, hero_video, hero_source, sections, raw_settings")
         .eq("id", "default")
         .maybeSingle();
 
+      const settingsResult = await fetchWithTimeout(settingsPromise, 3500);
+      
       let activeSet: Settings | null = null;
-      if (settingsData) {
+      if (settingsResult && settingsResult.data) {
+        const settingsData = settingsResult.data as any;
         activeSet = settingsData.raw_settings ? (settingsData.raw_settings as Settings) : {
           site_name: settingsData.site_name || "GALERI EMKA",
           logo: settingsData.logo || "",
@@ -87,15 +128,17 @@ export default function App() {
         };
       }
 
-      // Fetch activities
-      const { data: actData } = await supabase
+      // 2. Fetch activities with timeout
+      const activitiesPromise = supabase
         .from("activities")
-        .select("*")
+        .select("id, title, slug, category, date, description, cover_image, background_video, google_drive_url, published, created_at, updated_at")
         .order("date", { ascending: false });
 
+      const activitiesResult = await fetchWithTimeout(activitiesPromise, 3500);
+
       let mappedActivities: Activity[] = [];
-      if (actData && actData.length > 0) {
-        mappedActivities = actData.map(row => ({
+      if (activitiesResult && activitiesResult.data) {
+        mappedActivities = (activitiesResult.data as any[]).map(row => ({
           id: row.id,
           title: row.title,
           slug: row.slug,
@@ -111,15 +154,17 @@ export default function App() {
         }));
       }
 
-      // Fetch photos/media
-      const { data: mediaData } = await supabase
+      // 3. Fetch photos/media with timeout
+      const photosPromise = supabase
         .from("activity_media")
-        .select("*")
+        .select("id, activity_id, caption, url, sort_order, created_at")
         .order("sort_order", { ascending: true });
 
+      const photosResult = await fetchWithTimeout(photosPromise, 3500);
+
       let mappedPhotos: Photo[] = [];
-      if (mediaData && mediaData.length > 0) {
-        mappedPhotos = mediaData.map(row => ({
+      if (photosResult && photosResult.data) {
+        mappedPhotos = (photosResult.data as any[]).map(row => ({
           id: row.id,
           activity_id: row.activity_id,
           title: row.caption || "",
@@ -130,27 +175,25 @@ export default function App() {
         }));
       }
 
-      // If we got no data from Supabase, fall back to fallbackData
-      if (mappedActivities.length === 0 && mappedPhotos.length === 0 && !activeSet) {
-        setActivities((fallbackData.activities || []) as Activity[]);
-        setPhotos((fallbackData.photos || []) as Photo[]);
-        setSettings((fallbackData.settings || null) as Settings | null);
-      } else {
-        setActivities(mappedActivities);
-        setPhotos(mappedPhotos);
+      // If we got valid fresh data, update states and caching
+      if (mappedActivities.length > 0 || mappedPhotos.length > 0 || activeSet) {
+        if (mappedActivities.length > 0) {
+          setActivities(mappedActivities);
+          sessionStorage.setItem("emka_cached_activities", JSON.stringify(mappedActivities));
+        }
+        if (mappedPhotos.length > 0) {
+          setPhotos(mappedPhotos);
+          sessionStorage.setItem("emka_cached_photos", JSON.stringify(mappedPhotos));
+        }
         if (activeSet) {
           setSettings(activeSet);
-        } else {
-          setSettings((fallbackData.settings || null) as Settings | null);
+          sessionStorage.setItem("emka_cached_settings", JSON.stringify(activeSet));
         }
       }
     } catch (error) {
       console.error("Supabase load error, falling back to local data:", error);
-      setActivities((fallbackData.activities || []) as Activity[]);
-      setPhotos((fallbackData.photos || []) as Photo[]);
-      setSettings((fallbackData.settings || null) as Settings | null);
     } finally {
-      setIsLoading(false);
+      setIsFetchingData(false);
     }
   };
 
@@ -262,19 +305,6 @@ export default function App() {
 
   const currentDetailActivity = activities.find((act) => act.slug === activeSlug);
   const currentDetailPhotos = photos.filter((p) => p.activity_id === currentDetailActivity?.id);
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-[#17130e] flex items-center justify-center text-[#eae1d8]">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-10 h-10 animate-spin text-[#f6c374]" />
-          <p className="font-display text-sm tracking-widest text-[#9b8f7f] uppercase">
-            Memuat Galeri Emka...
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   // Active Site Settings Fallbacks
   const activeSettings: Settings = (settings || {
