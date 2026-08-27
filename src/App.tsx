@@ -143,7 +143,9 @@ export default function App() {
           enable_foto_terbaru_page: raw.enable_foto_terbaru_page ?? true,
           slideshow_duration: raw.slideshow_duration ?? 5,
           slideshow_transition: raw.slideshow_transition ?? "Fade",
-          slideshow_blur: raw.slideshow_blur ?? 35
+          slideshow_blur: raw.slideshow_blur ?? 35,
+          copyright_year: raw.copyright_year || "2026",
+          copyright_author: raw.copyright_author || ""
         };
       }
 
@@ -403,7 +405,9 @@ export default function App() {
     hero_image: "",
     hero_video: "",
     hero_source: "auto",
-    sections: []
+    sections: [],
+    copyright_year: "2026",
+    copyright_author: ""
   }) as Settings;
 
   return (
@@ -905,7 +909,7 @@ export default function App() {
                 {activeSettings.site_name}
               </span>
               <p className="font-body text-[10px] text-[#9b8f7f] uppercase tracking-widest">
-                Elevating School Memories into Fine-Art Archives
+                Mengabadikan perjalanan EMKA
               </p>
             </div>
 
@@ -919,7 +923,7 @@ export default function App() {
             </div>
 
             <p className="font-body text-[10px] text-[#4f4538]">
-              &copy; {new Date().getFullYear()} {activeSettings.site_name}. All rights reserved. Built with precision.
+              &copy; {activeSettings.copyright_year || new Date().getFullYear()} {activeSettings.site_name}. All rights reserved. Built with precision.{activeSettings.copyright_author ? ` Created by ${activeSettings.copyright_author}` : ""}
             </p>
           </div>
         </footer>

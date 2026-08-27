@@ -36,7 +36,7 @@ interface AdminDashboardProps {
 
 export default function AdminDashboard({ token, onLogout, onShowToast, onRefreshData }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<"dashboard" | "activities" | "photos" | "settings">("dashboard");
-  const [settingsSubTab, setSettingsSubTab] = useState<"school" | "hero" | "about" | "vision" | "sections">("school");
+  const [settingsSubTab, setSettingsSubTab] = useState<"school" | "hero" | "about" | "vision" | "sections" | "copyright">("school");
   const [activities, setActivities] = useState<Activity[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -190,7 +190,9 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
           enable_foto_terbaru_page: raw.enable_foto_terbaru_page ?? true,
           slideshow_duration: raw.slideshow_duration ?? 5,
           slideshow_transition: raw.slideshow_transition ?? "Fade",
-          slideshow_blur: raw.slideshow_blur ?? 35
+          slideshow_blur: raw.slideshow_blur ?? 35,
+          copyright_year: raw.copyright_year || "2026",
+          copyright_author: raw.copyright_author || ""
         };
       }
 
@@ -1528,6 +1530,17 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
               >
                 Tata Letak Beranda
               </button>
+              <button
+                type="button"
+                onClick={() => setSettingsSubTab("copyright")}
+                className={`py-2 px-4 rounded-sm border transition-all cursor-pointer ${
+                  settingsSubTab === "copyright"
+                    ? "bg-[#f6c374] text-[#110e09] border-[#f6c374] font-bold"
+                    : "border-[#4f4538]/30 text-[#9b8f7f] hover:text-[#eae1d8] hover:border-[#eae1d8]"
+                }`}
+              >
+                Pengaturan Copyright
+              </button>
             </div>
 
             <form onSubmit={handleSaveSettings} className="glass-panel p-6 sm:p-8 rounded-sm border border-[#4f4538]/15 space-y-8">
@@ -2286,6 +2299,49 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
                     </div>
                   </div>
 
+                </div>
+              )}
+
+              {/* SUB TAB: Pengaturan Copyright */}
+              {settingsSubTab === "copyright" && (
+                <div className="space-y-6">
+                  <h3 className="font-display text-lg font-bold text-[#f6c374] border-b border-[#4f4538]/10 pb-2">
+                    Pengaturan Copyright
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="block font-subheading text-[10px] tracking-widest uppercase text-[#9b8f7f]">
+                        Tahun Copyright
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Contoh: 2026"
+                        value={settingsFormData.copyright_year || ""}
+                        onChange={(e) => setSettingsFormData(prev => ({ ...prev, copyright_year: e.target.value }))}
+                        className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded-sm py-2.5 px-4 font-body text-xs text-[#eae1d8] focus:outline-none focus:border-[#f6c374] transition-colors"
+                      />
+                      <p className="text-[9px] text-[#9b8f7f] leading-relaxed">
+                        Tahun yang akan ditampilkan pada bagian footer website publik.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block font-subheading text-[10px] tracking-widest uppercase text-[#9b8f7f]">
+                        Nama Pencipta / Pembuat Website
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Contoh: Nama Pembuat"
+                        value={settingsFormData.copyright_author || ""}
+                        onChange={(e) => setSettingsFormData(prev => ({ ...prev, copyright_author: e.target.value }))}
+                        className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded-sm py-2.5 px-4 font-body text-xs text-[#eae1d8] focus:outline-none focus:border-[#f6c374] transition-colors"
+                      />
+                      <p className="text-[9px] text-[#9b8f7f] leading-relaxed">
+                        Nama pencipta website yang akan ditampilkan di sebelah info hak cipta. Kosongkan jika tidak ingin ditampilkan.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
 

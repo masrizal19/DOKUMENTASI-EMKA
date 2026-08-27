@@ -126,6 +126,8 @@ export const fallbackData = {
       }
     ],
     "enable_kegiatan_page": true,
-    "enable_foto_terbaru_page": true
+    "enable_foto_terbaru_page": true,
+    "copyright_year": "2026",
+    "copyright_author": ""
   }
 };

@@ -99,6 +99,10 @@ export interface Settings {
   slideshow_duration?: number;
   slideshow_transition?: string;
   slideshow_blur?: number;
+
+  // Copyright Settings
+  copyright_year?: string;
+  copyright_author?: string;
 }
 
 export interface DashboardStats {
