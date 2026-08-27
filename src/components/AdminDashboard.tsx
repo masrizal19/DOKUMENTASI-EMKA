@@ -88,7 +88,9 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
     hero_video: "",
     hero_source: "auto",
     hero_activity_id: "",
-    sections: []
+    sections: [],
+    enable_kegiatan_page: true,
+    enable_foto_terbaru_page: true
   });
 
   const [uploadLoading, setUploadLoading] = useState(false);
@@ -137,7 +139,9 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
             hero_video: data.settings.hero_video || "",
             hero_source: data.settings.hero_source || "auto",
             hero_activity_id: data.settings.hero_activity_id || "",
-            sections: data.settings.sections || []
+            sections: data.settings.sections || [],
+            enable_kegiatan_page: data.settings.enable_kegiatan_page !== false,
+            enable_foto_terbaru_page: data.settings.enable_foto_terbaru_page !== false
           });
         }
       } else {
@@ -1500,107 +1504,186 @@ export default function AdminDashboard({ token, onLogout, onShowToast }: AdminDa
                     </button>
                   </div>
 
-                  <div className="space-y-4">
-                    {settingsFormData.sections.map((sec, sIdx) => (
-                      <div key={sec.id} className="bg-[#110e09]/60 border border-[#4f4538]/20 rounded p-4 space-y-4">
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-[#4f4538]/10 pb-2">
-                          <div className="flex items-center gap-3">
-                            <input
-                              type="checkbox"
-                              id={`check-${sec.id}`}
-                              checked={sec.enabled}
-                              onChange={(e) => {
-                                const updated = [...settingsFormData.sections];
-                                updated[sIdx].enabled = e.target.checked;
-                                setSettingsFormData(prev => ({ ...prev, sections: updated }));
-                              }}
-                              className="w-4 h-4 rounded text-[#f6c374] focus:ring-[#f6c374] bg-[#110e09] border-[#4f4538] cursor-pointer"
-                            />
-                            <label htmlFor={`check-${sec.id}`} className="font-display text-sm font-bold text-[#eae1d8] cursor-pointer">
-                              {sec.section_name} <span className="text-[10px] text-[#9b8f7f] font-mono font-normal">({sec.id})</span>
-                            </label>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              disabled={sIdx === 0}
-                              onClick={() => handleMoveSection(sec.id, "up")}
-                              className="p-1 border border-[#4f4538]/30 hover:border-[#f6c374] hover:text-[#f6c374] rounded transition-all disabled:opacity-20 disabled:cursor-not-allowed"
-                              title="Pindahkan ke atas"
-                            >
-                              <ChevronUp className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={sIdx === settingsFormData.sections.length - 1}
-                              onClick={() => handleMoveSection(sec.id, "down")}
-                              className="p-1 border border-[#4f4538]/30 hover:border-[#f6c374] hover:text-[#f6c374] rounded transition-all disabled:opacity-20 disabled:cursor-not-allowed"
-                              title="Pindahkan ke bawah"
-                            >
-                              <ChevronDown className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                  {/* Dedicated Page Toggles Panel */}
+                  <div className="bg-[#1c160e] border border-[#f6c374]/15 rounded p-5 space-y-4">
+                    <div>
+                      <h4 className="font-display text-sm font-bold text-[#f6c374]">
+                        Status Aktif Halaman Utama (Global Page Settings)
+                      </h4>
+                      <p className="text-[10px] text-[#9b8f7f] mt-1 leading-relaxed">
+                        Tentukan apakah rute halaman publik utama diaktifkan. Jika dinonaktifkan, rute halaman tersebut tidak dapat diakses dan tombol navigasinya akan disembunyikan secara otomatis.
+                      </p>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                      <div className="flex items-center justify-between p-4 bg-[#110e09]/80 border border-[#4f4538]/20 rounded">
+                        <div>
+                          <span className="block font-subheading text-[10px] tracking-widest uppercase text-[#eae1d8] font-bold">
+                            AKTIFKAN HALAMAN KEGIATAN
+                          </span>
+                          <span className="text-[9px] text-[#9b8f7f]">
+                            Menampilkan seluruh arsip dokumentasi kegiatan.
+                          </span>
                         </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading block">Label Judul Kustom (Custom Label)</label>
-                            <input
-                              type="text"
-                              required
-                              value={sec.custom_label || ""}
-                              onChange={(e) => {
-                                const updated = [...settingsFormData.sections];
-                                updated[sIdx].custom_label = e.target.value;
-                                setSettingsFormData(prev => ({ ...prev, sections: updated }));
-                              }}
-                              className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-1.5 px-2.5 text-xs text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
-                            />
-                          </div>
-
-                          {(sec.id === "kegiatan" || sec.id === "galeri" || sec.id === "foto-terbaru") && (
-                            <>
-                              <div className="space-y-1">
-                                <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading block">Batas Tampilan (Item Limit)</label>
-                                <select
-                                  value={sec.item_limit === "all" ? "all" : String(sec.item_limit)}
-                                  onChange={(e) => {
-                                    const updated = [...settingsFormData.sections];
-                                    const val = e.target.value;
-                                    updated[sIdx].item_limit = val === "all" ? "all" : Number(val);
-                                    setSettingsFormData(prev => ({ ...prev, sections: updated }));
-                                  }}
-                                  className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-1.5 px-2 text-xs text-[#eae1d8]"
-                                >
-                                  <option value="3">3 Item</option>
-                                  <option value="4">4 Item</option>
-                                  <option value="6">6 Item</option>
-                                  <option value="9">9 Item</option>
-                                  <option value="12">12 Item</option>
-                                  <option value="all">Tampilkan Semua</option>
-                                </select>
-                              </div>
-
-                              <div className="space-y-1">
-                                <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading block">Urutan Data (Sorting)</label>
-                                <select
-                                  value={sec.sorting || "latest"}
-                                  onChange={(e) => {
-                                    const updated = [...settingsFormData.sections];
-                                    updated[sIdx].sorting = e.target.value as "latest" | "oldest";
-                                    setSettingsFormData(prev => ({ ...prev, sections: updated }));
-                                  }}
-                                  className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-1.5 px-2 text-xs text-[#eae1d8]"
-                                >
-                                  <option value="latest">Terbaru Terlebih Dahulu</option>
-                                  <option value="oldest">Terlama Terlebih Dahulu</option>
-                                </select>
-                              </div>
-                            </>
-                          )}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSettingsFormData(prev => ({ ...prev, enable_kegiatan_page: !prev.enable_kegiatan_page }))}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            settingsFormData.enable_kegiatan_page ? 'bg-[#d8a85c]' : 'bg-[#4f4538]/40'
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-[#110e09] shadow ring-0 transition duration-200 ease-in-out ${
+                              settingsFormData.enable_kegiatan_page ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
                       </div>
-                    ))}
+
+                      <div className="flex items-center justify-between p-4 bg-[#110e09]/80 border border-[#4f4538]/20 rounded">
+                        <div>
+                          <span className="block font-subheading text-[10px] tracking-widest uppercase text-[#eae1d8] font-bold">
+                            AKTIFKAN HALAMAN FOTO TERBARU
+                          </span>
+                          <span className="text-[9px] text-[#9b8f7f]">
+                            Menampilkan mosaik foto terbaru sekolah.
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSettingsFormData(prev => ({ ...prev, enable_foto_terbaru_page: !prev.enable_foto_terbaru_page }))}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            settingsFormData.enable_foto_terbaru_page ? 'bg-[#d8a85c]' : 'bg-[#4f4538]/40'
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-[#110e09] shadow ring-0 transition duration-200 ease-in-out ${
+                              settingsFormData.enable_foto_terbaru_page ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-[#4f4538]/10 pt-4">
+                    <h4 className="font-display text-sm font-bold text-[#f6c374] mb-3">Tata Letak Beranda (Homepage Blocks)</h4>
+                  </div>
+
+                  <div className="space-y-4">
+                    {settingsFormData.sections
+                      .filter(s => s.id !== "kegiatan_page" && s.id !== "foto_terbaru_page")
+                      .map((sec, visualIdx) => {
+                        const originalIdx = settingsFormData.sections.findIndex(s => s.id === sec.id);
+                        return (
+                          <div key={sec.id} className="bg-[#110e09]/60 border border-[#4f4538]/20 rounded p-4 space-y-4">
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-[#4f4538]/10 pb-2">
+                              <div className="flex items-center gap-3">
+                                <input
+                                  type="checkbox"
+                                  id={`check-${sec.id}`}
+                                  checked={sec.enabled}
+                                  onChange={(e) => {
+                                    if (originalIdx !== -1) {
+                                      const updated = [...settingsFormData.sections];
+                                      updated[originalIdx].enabled = e.target.checked;
+                                      setSettingsFormData(prev => ({ ...prev, sections: updated }));
+                                    }
+                                  }}
+                                  className="w-4 h-4 rounded text-[#f6c374] focus:ring-[#f6c374] bg-[#110e09] border-[#4f4538] cursor-pointer"
+                                />
+                                <label htmlFor={`check-${sec.id}`} className="font-display text-sm font-bold text-[#eae1d8] cursor-pointer">
+                                  {sec.section_name} <span className="text-[10px] text-[#9b8f7f] font-mono font-normal">({sec.id})</span>
+                                </label>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  disabled={visualIdx === 0}
+                                  onClick={() => handleMoveSection(sec.id, "up")}
+                                  className="p-1 border border-[#4f4538]/30 hover:border-[#f6c374] hover:text-[#f6c374] rounded transition-all disabled:opacity-20 disabled:cursor-not-allowed"
+                                  title="Pindahkan ke atas"
+                                >
+                                  <ChevronUp className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={visualIdx === settingsFormData.sections.filter(s => s.id !== "kegiatan_page" && s.id !== "foto_terbaru_page").length - 1}
+                                  onClick={() => handleMoveSection(sec.id, "down")}
+                                  className="p-1 border border-[#4f4538]/30 hover:border-[#f6c374] hover:text-[#f6c374] rounded transition-all disabled:opacity-20 disabled:cursor-not-allowed"
+                                  title="Pindahkan ke bawah"
+                                >
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                              <div className="space-y-1">
+                                <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading block">Label Judul Kustom (Custom Label)</label>
+                                <input
+                                  type="text"
+                                  required
+                                  value={sec.custom_label || ""}
+                                  onChange={(e) => {
+                                    if (originalIdx !== -1) {
+                                      const updated = [...settingsFormData.sections];
+                                      updated[originalIdx].custom_label = e.target.value;
+                                      setSettingsFormData(prev => ({ ...prev, sections: updated }));
+                                    }
+                                  }}
+                                  className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-1.5 px-2.5 text-xs text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
+                                />
+                              </div>
+
+                              {(sec.id === "kegiatan" || sec.id === "galeri" || sec.id === "foto-terbaru") && (
+                                <>
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading block">Batas Tampilan (Item Limit)</label>
+                                    <select
+                                      value={sec.item_limit === "all" ? "all" : String(sec.item_limit)}
+                                      onChange={(e) => {
+                                        if (originalIdx !== -1) {
+                                          const updated = [...settingsFormData.sections];
+                                          const val = e.target.value;
+                                          updated[originalIdx].item_limit = val === "all" ? "all" : Number(val);
+                                          setSettingsFormData(prev => ({ ...prev, sections: updated }));
+                                        }
+                                      }}
+                                      className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-1.5 px-2 text-xs text-[#eae1d8]"
+                                    >
+                                      <option value="3">3 Item</option>
+                                      <option value="4">4 Item</option>
+                                      <option value="6">6 Item</option>
+                                      <option value="9">9 Item</option>
+                                      <option value="12">12 Item</option>
+                                      <option value="all">Tampilkan Semua</option>
+                                    </select>
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading block">Urutan Data (Sorting)</label>
+                                    <select
+                                      value={sec.sorting || "latest"}
+                                      onChange={(e) => {
+                                        if (originalIdx !== -1) {
+                                          const updated = [...settingsFormData.sections];
+                                          updated[originalIdx].sorting = e.target.value as "latest" | "oldest";
+                                          setSettingsFormData(prev => ({ ...prev, sections: updated }));
+                                        }
+                                      }}
+                                      className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-1.5 px-2 text-xs text-[#eae1d8]"
+                                    >
+                                      <option value="latest">Terbaru Terlebih Dahulu</option>
+                                      <option value="oldest">Terlama Terlebih Dahulu</option>
+                                    </select>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                   </div>
                 </div>
               )}

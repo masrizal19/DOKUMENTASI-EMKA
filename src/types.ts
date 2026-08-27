@@ -89,6 +89,8 @@ export interface Settings {
   
   // Section configurations
   sections: SectionSetting[];
+  enable_kegiatan_page?: boolean;
+  enable_foto_terbaru_page?: boolean;
 }
 
 export interface DashboardStats {

@@ -4,7 +4,7 @@ import { Menu, X, MessageSquare, Shield } from "lucide-react";
 
 interface TopNavBarProps {
   activeTab: string;
-  onChangeTab: (tab: "beranda" | "galeri" | "kegiatan" | "tentang" | "admin", slug?: string) => void;
+  onChangeTab: (tab: "beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "admin", slug?: string) => void;
   settings: Settings;
   isAdminLoggedIn: boolean;
 }
@@ -26,13 +26,16 @@ export default function TopNavBar({ activeTab, onChangeTab, settings, isAdminLog
     window.open(`https://wa.me/${cleanNumber}`, "_blank", "noopener,noreferrer");
   };
 
+  const isKegiatanPageEnabled = settings.enable_kegiatan_page !== false;
+  const isFotoTerbaruPageEnabled = settings.enable_foto_terbaru_page !== false;
+
   const navItems = [
     { id: "beranda", label: "Beranda" },
     { id: "galeri", label: "Galeri" },
-    { id: "kegiatan", label: "Kegiatan" },
-    { id: "foto-terbaru", label: "Foto Terbaru" },
+    ...(isKegiatanPageEnabled ? [{ id: "kegiatan", label: "Kegiatan" } as const] : []),
+    ...(isFotoTerbaruPageEnabled ? [{ id: "foto-terbaru", label: "Foto Terbaru" } as const] : []),
     { id: "tentang", label: "Tentang" }
-  ] as const;
+  ];
 
   return (
     <nav
@@ -67,19 +70,12 @@ export default function TopNavBar({ activeTab, onChangeTab, settings, isAdminLog
           <div className="hidden md:flex items-center space-x-8">
             <div className="flex space-x-6">
               {navItems.map((item) => {
-                const isActive = activeTab === item.id || (item.id === "galeri" && activeTab === "foto-terbaru");
+                const isActive = activeTab === item.id;
                 return (
                   <button
                     key={item.id}
                     onClick={() => {
-                      onChangeTab(item.id === "foto-terbaru" ? "galeri" : item.id);
-                      if (item.id === "foto-terbaru") {
-                        // Trigger scrolling or scroll behavior in Galeri if needed
-                        setTimeout(() => {
-                          const el = document.getElementById("gallery-header");
-                          if (el) el.scrollIntoView({ behavior: "smooth" });
-                        }, 100);
-                      }
+                      onChangeTab(item.id as any);
                     }}
                     className={`font-subheading text-[13px] tracking-widest uppercase transition-all duration-300 relative py-1 hover:scale-105 ${
                       isActive
@@ -130,7 +126,7 @@ export default function TopNavBar({ activeTab, onChangeTab, settings, isAdminLog
                   key={item.id}
                   onClick={() => {
                     setIsMobileMenuOpen(false);
-                    onChangeTab(item.id === "foto-terbaru" ? "galeri" : item.id);
+                    onChangeTab(item.id as any);
                   }}
                   className={`text-left font-subheading text-[14px] tracking-widest uppercase py-2 border-b border-[#4f4538]/10 block ${
                     isActive ? "text-[#f6c374] font-bold" : "text-[#d3c4b3]"

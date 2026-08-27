@@ -51,7 +51,9 @@ function defaultSections(): SectionSetting[] {
     { id: "foto-terbaru", section_name: "Foto Terbaru", enabled: true, layout: "grid", sort_order: 4, item_limit: 6, custom_label: "Momen Terkini", sorting: "latest", source: "all" },
     { id: "tentang", section_name: "Tentang Kami", enabled: true, layout: "editorial", sort_order: 5, item_limit: "all", custom_label: "Tentang Kami" },
     { id: "visi-misi", section_name: "Visi & Misi", enabled: true, layout: "grid", sort_order: 6, item_limit: "all", custom_label: "Visi & Misi" },
-    { id: "kontak", section_name: "Informasi Kontak", enabled: true, layout: "grid", sort_order: 7, item_limit: "all", custom_label: "Hubungi Kami" }
+    { id: "kontak", section_name: "Informasi Kontak", enabled: true, layout: "grid", sort_order: 7, item_limit: "all", custom_label: "Hubungi Kami" },
+    { id: "kegiatan_page", section_name: "Status Halaman Kegiatan", enabled: true, layout: "page", sort_order: 8, item_limit: "all", custom_label: "Halaman Kegiatan" },
+    { id: "foto_terbaru_page", section_name: "Status Halaman Foto Terbaru", enabled: true, layout: "page", sort_order: 9, item_limit: "all", custom_label: "Halaman Foto Terbaru" }
   ];
 }
 
@@ -99,7 +101,27 @@ function migrateSettings(settings: any): Settings {
     hero_source: settings?.hero_source || "auto",
     hero_activity_id: settings?.hero_activity_id || "",
     
-    sections: settings?.sections || defaultSections()
+    sections: (() => {
+      const dbSecs = settings?.sections || [];
+      const defs = defaultSections();
+      const merged = [...dbSecs];
+      defs.forEach((def: any) => {
+        if (!merged.some((s: any) => s.id === def.id)) {
+          merged.push(def);
+        }
+      });
+      return merged;
+    })(),
+    enable_kegiatan_page: (() => {
+      const dbSecs = settings?.sections || [];
+      const found = dbSecs.find((s: any) => s.id === "kegiatan_page");
+      return found ? found.enabled : true;
+    })(),
+    enable_foto_terbaru_page: (() => {
+      const dbSecs = settings?.sections || [];
+      const found = dbSecs.find((s: any) => s.id === "foto_terbaru_page");
+      return found ? found.enabled : true;
+    })()
   };
 }
 
@@ -888,6 +910,31 @@ app.put("/api/admin/settings", requireAdmin, async (req, res) => {
       ...req.body,
       updated_at: new Date().toISOString()
     };
+
+    let finalSections = updates.sections || [];
+    if (typeof updates.enable_kegiatan_page === "boolean") {
+      finalSections = finalSections.map((s: any) => {
+        if (s.id === "kegiatan_page") {
+          return { ...s, enabled: updates.enable_kegiatan_page };
+        }
+        return s;
+      });
+    }
+    if (typeof updates.enable_foto_terbaru_page === "boolean") {
+      finalSections = finalSections.map((s: any) => {
+        if (s.id === "foto_terbaru_page") {
+          return { ...s, enabled: updates.enable_foto_terbaru_page };
+        }
+        return s;
+      });
+    }
+    if (updates.sections) {
+      updates.sections = finalSections;
+    }
+
+    // Delete virtual keys before Supabase upsert to avoid column schema errors
+    delete updates.enable_kegiatan_page;
+    delete updates.enable_foto_terbaru_page;
 
     if (useSupabase && supabase) {
       const { data, error } = await supabase

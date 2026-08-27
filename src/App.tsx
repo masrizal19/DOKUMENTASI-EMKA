@@ -3,6 +3,8 @@ import { Activity, Photo, Settings, SectionSetting } from "./types.js";
 import TopNavBar from "./components/TopNavBar.js";
 import HeroCarousel from "./components/HeroCarousel.js";
 import GaleriFoto from "./components/GaleriFoto.js";
+import KegiatanPage from "./components/KegiatanPage.js";
+import FotoTerbaruPage from "./components/FotoTerbaruPage.js";
 import DetailKegiatan from "./components/DetailKegiatan.js";
 import AdminLogin from "./components/AdminLogin.js";
 import AdminDashboard from "./components/AdminDashboard.js";
@@ -18,8 +20,9 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
 
   // Routing state
-  const [activeTab, setActiveTab] = useState<"beranda" | "galeri" | "kegiatan" | "tentang" | "detail-kegiatan" | "admin">("beranda");
+  const [activeTab, setActiveTab] = useState<"beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "detail-kegiatan" | "admin">("beranda");
   const [activeSlug, setActiveSlug] = useState<string>("");
+  const [prevTab, setPrevTab] = useState<string>("beranda");
 
   // Admin session state
   const [adminToken, setAdminToken] = useState<string | null>(localStorage.getItem("admin_token"));
@@ -80,12 +83,23 @@ export default function App() {
       const hash = window.location.hash;
       if (!hash || hash === "#" || hash === "#beranda") {
         setActiveTab("beranda");
+        setPrevTab("beranda");
         setActiveSlug("");
       } else if (hash === "#galeri") {
         setActiveTab("galeri");
+        setPrevTab("galeri");
+        setActiveSlug("");
+      } else if (hash === "#kegiatan") {
+        setActiveTab("kegiatan");
+        setPrevTab("kegiatan");
+        setActiveSlug("");
+      } else if (hash === "#foto-terbaru") {
+        setActiveTab("foto-terbaru");
+        setPrevTab("foto-terbaru");
         setActiveSlug("");
       } else if (hash === "#tentang") {
         setActiveTab("tentang");
+        setPrevTab("tentang");
         setActiveSlug("");
       } else if (hash === "#admin") {
         setActiveTab("admin");
@@ -110,7 +124,7 @@ export default function App() {
   }, [adminToken]);
 
   // Navigate utility that syncs with address bar hash
-  const navigateTo = (tab: "beranda" | "galeri" | "kegiatan" | "tentang" | "admin", slug?: string) => {
+  const navigateTo = (tab: "beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "admin", slug?: string) => {
     if (slug) {
       window.location.hash = `#kegiatan/${slug}`;
     } else {
@@ -535,12 +549,29 @@ export default function App() {
           />
         )}
 
+        {activeTab === "kegiatan" && (
+          <KegiatanPage
+            activities={activities}
+            photos={photos}
+            onViewActivity={(slug) => navigateTo("beranda", slug)}
+          />
+        )}
+
+        {activeTab === "foto-terbaru" && (
+          <FotoTerbaruPage
+            activities={activities}
+            photos={photos}
+            onViewActivity={(slug) => navigateTo("beranda", slug)}
+            onOpenLightbox={openLightbox}
+          />
+        )}
+
         {activeTab === "detail-kegiatan" && currentDetailActivity && (
           <DetailKegiatan
             activity={currentDetailActivity}
             photos={currentDetailPhotos}
             allActivities={activities}
-            onBack={() => navigateTo("galeri")}
+            onBack={() => navigateTo(prevTab as any)}
             onNavigateActivity={(slug) => navigateTo("beranda", slug)}
             onOpenLightbox={openLightbox}
             onShowToast={showToast}
