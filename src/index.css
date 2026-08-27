@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+:root {
+  --font-display: 'Syne', sans-serif;
+  --font-subheading: 'Oswald', sans-serif;
+  --font-body: 'Inter', sans-serif;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+.font-subheading {
+  font-family: var(--font-subheading);
+}
+.font-body {
+  font-family: var(--font-body);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #110e09;
+}
+::-webkit-scrollbar-thumb {
+  background: #3e3832;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #f6c374;
+}
+
+/* Glass panels */
+.glass-panel {
+  background: rgba(35, 31, 25, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(168, 170, 166, 0.15);
+}
+
+/* Smooth custom easing for cinematic transitions */
+.transition-cinematic {
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  transition-duration: 800ms;
+}
+
+/* Masonry grid styles */
+.masonry-grid {
+  column-count: 1;
+  column-gap: 24px;
+}
+@media (min-width: 768px) {
+  .masonry-grid {
+    column-count: 2;
+  }
+}
+@media (min-width: 1024px) {
+  .masonry-grid {
+    column-count: 3;
+  }
+}
+.masonry-item {
+  break-inside: avoid;
+  margin-bottom: 24px;
+}

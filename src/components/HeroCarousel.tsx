@@ -1,0 +1,502 @@
+import { useState, useEffect, useRef } from "react";
+import { Activity, Settings } from "../types.js";
+import { motion, AnimatePresence } from "motion/react";
+import { ArrowLeft, ArrowRight, Eye, FolderOpen } from "lucide-react";
+
+interface HeroCarouselProps {
+  key?: string | number;
+  activities: Activity[];
+  onViewActivity: (slug: string) => void;
+  settings?: Settings | null;
+}
+
+export default function HeroCarousel({ activities, onViewActivity, settings }: HeroCarouselProps) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [videoLoaded, setVideoLoaded] = useState<{ [key: string]: boolean }>({});
+  const videoRefs = useRef<{ [key: string]: HTMLVideoElement | null }>({});
+  const autoplayTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Determine slide items based on Settings
+  let activeActivities: Activity[] = [];
+
+  if (settings && settings.hero_source === "manual") {
+    // If a specific activity is featured
+    if (settings.hero_activity_id) {
+      const selectedAct = activities.find(a => a.id === settings.hero_activity_id);
+      if (selectedAct) {
+        activeActivities = [selectedAct];
+      }
+    }
+    
+    // If no featured activity, or we want custom title/desc override
+    if (activeActivities.length === 0) {
+      activeActivities = [{
+        id: "hero-manual",
+        title: settings.hero_title || "GALERI EMKA",
+        slug: "",
+        category: settings.hero_label || "DOKUMENTASI SINEMATIK",
+        date: new Date().toISOString(),
+        description: settings.hero_description || "Elevating School Memories.",
+        cover_image: settings.hero_image || "https://lh3.googleusercontent.com/aida-public/AB6AXuDiwkKynY0e3IvvUAxEmtVZ2u6YZsowG5mH3l-zc6gcn5mgrMmkyLvOFh0ly7EMHYxMeLM6YbZfoIuD28BSAt6kQSyyS2xerZiM8e8Y2nBQ3wHh4h1KsBlXB1CgSdokMiaOQqGjzCv-N5FBMdWyescacStvofAlUq4Ssr_mwwCviBoNGNiEucMbgxtUSUcrOPn-gYMIpk7adM_Sr0Nzag2CcpWUo29jNQLnQAOhKxFYIJ1QHdbMV74X",
+        background_video: settings.hero_video,
+        status: "published",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }];
+    }
+  } else {
+    // Auto mode: show all published activities
+    activeActivities = activities.filter(act => act.status === "published");
+  }
+
+  const totalSlides = activeActivities.length;
+  const currentActivity = activeActivities[currentIndex] || activeActivities[0];
+
+  // 1. Detect Viewport Width for Responsiveness
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
+  // 2. Play active background video
+  useEffect(() => {
+    if (currentActivity && videoRefs.current[currentActivity.id]) {
+      videoRefs.current[currentActivity.id]?.play().catch(() => {
+        // Safe play fail (browser auto-block fallback)
+      });
+    }
+  }, [currentIndex, currentActivity]);
+
+  // 3. Autoplay Setup with custom pause/resume mechanics
+  const handleNext = () => {
+    if (totalSlides === 0) return;
+    setCurrentIndex((prev) => (prev + 1) % totalSlides);
+  };
+
+  const handlePrev = () => {
+    if (totalSlides === 0) return;
+    setCurrentIndex((prev) => (prev - 1 + totalSlides) % totalSlides);
+  };
+
+  useEffect(() => {
+    if (autoplayTimerRef.current) {
+      clearInterval(autoplayTimerRef.current);
+    }
+    
+    // Autoplay transition interval: 6 seconds
+    autoplayTimerRef.current = setInterval(() => {
+      if (!isHovered && totalSlides > 1) {
+        handleNext();
+      }
+    }, 6000);
+
+    return () => {
+      if (autoplayTimerRef.current) {
+        clearInterval(autoplayTimerRef.current);
+      }
+    };
+  }, [currentIndex, isHovered, totalSlides]);
+
+  // 4. Keyboard Navigation: Arrow Left/Right
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (totalSlides <= 1) return;
+      if (e.key === "ArrowRight") {
+        handleNext();
+      } else if (e.key === "ArrowLeft") {
+        handlePrev();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [totalSlides]);
+
+  if (totalSlides === 0 || !currentActivity) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-[#17130e] text-[#eae1d8]">
+        <p className="font-body text-sm text-[#d3c4b3]">Belum ada kegiatan yang dipublikasikan.</p>
+      </div>
+    );
+  }
+
+  // 5. Shortest circular offset calculation
+  const getOffset = (index: number) => {
+    let offset = index - currentIndex;
+    const half = totalSlides / 2;
+    if (offset < -half) offset += totalSlides;
+    else if (offset > half) offset -= totalSlides;
+    return offset;
+  };
+
+  // 6. Responsive 3D Perspective card configurations
+  const getCardStyles = (offset: number) => {
+    if (totalSlides === 1) {
+      return {
+        x: 0,
+        scale: 1,
+        rotateY: 0,
+        opacity: 1,
+        zIndex: 10,
+        filter: "blur(0px) brightness(1)",
+        pointerEvents: "auto" as const,
+      };
+    }
+    if (isMobile) {
+      if (offset === 0) {
+        return {
+          x: 0,
+          scale: 1,
+          rotateY: 0,
+          opacity: 1,
+          zIndex: 10,
+          filter: "blur(0px) brightness(1)",
+          pointerEvents: "auto" as const,
+        };
+      } else if (offset === -1) {
+        return {
+          x: "-60%",
+          scale: 0.78,
+          rotateY: 10,
+          opacity: 0.4,
+          zIndex: 5,
+          filter: "blur(2px) brightness(0.45)",
+          pointerEvents: "auto" as const,
+        };
+      } else if (offset === 1) {
+        return {
+          x: "60%",
+          scale: 0.78,
+          rotateY: -10,
+          opacity: 0.4,
+          zIndex: 5,
+          filter: "blur(2px) brightness(0.45)",
+          pointerEvents: "auto" as const,
+        };
+      } else {
+        return {
+          x: offset < 0 ? "-150%" : "150%",
+          scale: 0.6,
+          rotateY: offset < 0 ? 15 : -15,
+          opacity: 0,
+          zIndex: 0,
+          filter: "blur(4px) brightness(0.3)",
+          pointerEvents: "none" as const,
+        };
+      }
+    } else {
+      // Desktop perspective adjustments
+      if (offset === 0) {
+        return {
+          x: 0,
+          scale: 1,
+          rotateY: 0,
+          opacity: 1,
+          zIndex: 10,
+          filter: "blur(0px) brightness(1)",
+          pointerEvents: "auto" as const,
+        };
+      } else if (offset === -1) {
+        return {
+          x: "-100%",
+          scale: 0.82,
+          rotateY: 14,
+          opacity: 0.55,
+          zIndex: 5,
+          filter: "blur(1.5px) brightness(0.5)",
+          pointerEvents: "auto" as const,
+        };
+      } else if (offset === 1) {
+        return {
+          x: "100%",
+          scale: 0.82,
+          rotateY: -14,
+          opacity: 0.55,
+          zIndex: 5,
+          filter: "blur(1.5px) brightness(0.5)",
+          pointerEvents: "auto" as const,
+        };
+      } else if (offset === -2) {
+        return {
+          x: "-190%",
+          scale: 0.68,
+          rotateY: 22,
+          opacity: 0.2,
+          zIndex: 2,
+          filter: "blur(3px) brightness(0.3)",
+          pointerEvents: "auto" as const,
+        };
+      } else if (offset === 2) {
+        return {
+          x: "190%",
+          scale: 0.68,
+          rotateY: -22,
+          opacity: 0.2,
+          zIndex: 2,
+          filter: "blur(3px) brightness(0.3)",
+          pointerEvents: "auto" as const,
+        };
+      } else {
+        return {
+          x: offset < 0 ? "-280%" : "280%",
+          scale: 0.5,
+          rotateY: offset < 0 ? 30 : -30,
+          opacity: 0,
+          zIndex: 0,
+          filter: "blur(5px) brightness(0.2)",
+          pointerEvents: "none" as const,
+        };
+      }
+    }
+  };
+
+  return (
+    <div className="relative w-full h-screen overflow-hidden bg-[#110e09] z-10 select-none">
+      
+      {/* Background Sync Layers (Atmospheric Cinematic Background) */}
+      <div className="absolute inset-0 w-full h-full z-0 overflow-hidden select-none pointer-events-none">
+        {activeActivities.map((act, index) => {
+          const isActive = index === currentIndex;
+          const showVideo = act.background_video && videoLoaded[act.id];
+
+          return (
+            <div
+              key={`bg-${act.id}`}
+              className={`absolute inset-0 w-full h-full transition-all duration-[1200ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                isActive ? "opacity-100 scale-100 z-10" : "opacity-0 scale-105 z-0"
+              }`}
+            >
+              {/* Cover Image fallback */}
+              <img
+                src={act.cover_image}
+                alt=""
+                className="w-full h-full object-cover filter brightness-[0.22] blur-[15px] transform scale-[1.08]"
+                referrerPolicy="no-referrer"
+              />
+
+              {/* Background video layer */}
+              {act.background_video && (
+                <video
+                  ref={(el) => {
+                    videoRefs.current[act.id] = el;
+                  }}
+                  src={act.background_video}
+                  poster={act.cover_image}
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  onPlay={() => setVideoLoaded((prev) => ({ ...prev, [act.id]: true }))}
+                  onError={() => setVideoLoaded((prev) => ({ ...prev, [act.id]: false }))}
+                  className={`absolute inset-0 w-full h-full object-cover filter brightness-[0.22] blur-[15px] transition-opacity duration-1000 ${
+                    showVideo ? "opacity-100" : "opacity-0"
+                  }`}
+                />
+              )}
+            </div>
+          );
+        })}
+        {/* Double-layered gradient vignette */}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#17130e] via-transparent to-[#110e09]/80 z-20" />
+        <div className="absolute inset-0 bg-black/45 z-20" />
+      </div>
+
+      {/* Foreground Container */}
+      <div className="relative z-20 w-full h-full flex flex-col justify-between pt-24 pb-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto overflow-hidden">
+        
+        {/* TOP COMPONENT: Carousel Stage */}
+        <div 
+          className="w-full flex-1 flex items-center justify-center relative select-none cursor-grab active:cursor-grabbing"
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+        >
+          {/* Main 3D Stage with perspective */}
+          <motion.div 
+            drag={totalSlides > 1 ? "x" : false}
+            dragConstraints={{ left: 0, right: 0 }}
+            onDragEnd={(event, info) => {
+              const threshold = 50;
+              if (info.offset.x < -threshold) {
+                handleNext();
+              } else if (info.offset.x > threshold) {
+                handlePrev();
+              }
+            }}
+            className="relative w-full h-[320px] sm:h-[460px] flex items-center justify-center"
+            style={{ perspective: 1200, transformStyle: "preserve-3d" }}
+          >
+            {activeActivities.map((act, index) => {
+              const offset = getOffset(index);
+              const cardStyle = getCardStyles(offset);
+
+              return (
+                <motion.div
+                  key={act.id}
+                  style={{
+                    position: "absolute",
+                    transformOrigin: "center center",
+                    pointerEvents: cardStyle.pointerEvents,
+                  }}
+                  animate={{
+                    x: cardStyle.x,
+                    scale: cardStyle.scale,
+                    rotateY: cardStyle.rotateY,
+                    opacity: cardStyle.opacity,
+                    zIndex: cardStyle.zIndex,
+                    filter: cardStyle.filter,
+                  }}
+                  transition={{
+                    duration: 1.0,
+                    ease: [0.22, 1, 0.36, 1],
+                  }}
+                  onClick={() => {
+                    if (offset !== 0) {
+                      setCurrentIndex(index);
+                    } else if (act.slug) {
+                      onViewActivity(act.slug);
+                    }
+                  }}
+                  className="w-[240px] h-[340px] sm:w-[320px] sm:h-[450px] md:w-[350px] md:h-[480px] rounded-[16px] overflow-hidden border border-white/10 shadow-[0_25px_60px_rgba(0,0,0,0.85)] cursor-pointer group select-none flex-shrink-0"
+                >
+                  {/* Photo Layer */}
+                  <img
+                    src={act.cover_image}
+                    alt={act.title}
+                    className="w-full h-full object-cover select-none pointer-events-none group-hover:scale-105 transition-transform duration-700"
+                    referrerPolicy="no-referrer"
+                  />
+
+                  {/* Glass Card Tint Overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity duration-500" />
+                  
+                  {/* Card category badge floating */}
+                  {offset === 0 && (
+                    <div className="absolute bottom-6 left-6 right-6">
+                      <span className="font-subheading text-[9px] sm:text-[10px] text-[#f6c374] bg-[#110e09]/80 backdrop-blur border border-white/10 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                        {act.category}
+                      </span>
+                    </div>
+                  )}
+                </motion.div>
+              );
+            })}
+          </motion.div>
+        </div>
+
+        {/* BOTTOM COMPONENT: Interactive Details & Navigation Controls */}
+        <div className="space-y-6 sm:space-y-8 mt-4">
+          
+          {/* Synchronized Text Entrance section */}
+          <div className="flex flex-col items-center text-center max-w-2xl mx-auto space-y-3 sm:space-y-4">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={currentActivity.id}
+                initial={{ opacity: 0, y: 20, filter: "blur(4px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                exit={{ opacity: 0, y: -15, filter: "blur(2px)" }}
+                transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}
+                className="space-y-2 sm:space-y-3 flex flex-col items-center"
+              >
+                {/* Category eyebrow */}
+                <span className="font-subheading text-[10px] sm:text-[11px] text-[#f6c374] tracking-[0.25em] uppercase font-bold">
+                  {currentActivity.category}
+                </span>
+
+                {/* Main Heading */}
+                <h1 className="font-display text-2xl sm:text-4xl lg:text-5xl font-extrabold text-[#eae1d8] uppercase tracking-wide leading-tight max-w-xl">
+                  {currentActivity.title}
+                </h1>
+
+                {/* Description Text */}
+                <p className="font-body text-xs sm:text-sm text-[#d3c4b3]/90 leading-relaxed max-w-lg">
+                  {currentActivity.description}
+                </p>
+
+                {/* Call-to-actions buttons */}
+                <div className="pt-2 flex flex-wrap gap-3 sm:gap-4 justify-center items-center">
+                  {currentActivity.slug && (
+                    <button
+                      onClick={() => onViewActivity(currentActivity.slug)}
+                      className="bg-[#d8a85c] hover:bg-[#eae1d8] text-[#110e09] font-subheading text-[10px] tracking-widest uppercase py-2.5 px-6 rounded-sm font-semibold transition-all duration-300 flex items-center gap-2 cursor-pointer shadow-lg"
+                    >
+                      <Eye className="w-3.5 h-3.5" /> LIHAT DOKUMENTASI
+                    </button>
+                  )}
+
+                  {currentActivity.google_drive_url && (
+                    <a
+                      href={currentActivity.google_drive_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-[#110e09]/90 border border-white/10 hover:bg-[#eae1d8] hover:text-[#110e09] text-[#eae1d8] font-subheading text-[10px] tracking-widest uppercase py-2.5 px-6 rounded-sm font-semibold transition-all duration-300 flex items-center gap-2 cursor-pointer shadow-lg"
+                    >
+                      <FolderOpen className="w-3.5 h-3.5 text-[#f6c374]" /> LIHAT SEMUA FOTO
+                    </a>
+                  )}
+                </div>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          {/* Navigation Control Area */}
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-4 border-t border-white/10 pt-4 sm:pt-6">
+            
+            {/* Index Counter Display */}
+            <div className="flex items-baseline gap-2 font-display text-2xl sm:text-3xl text-white/30">
+              <span className="text-[#f6c374] font-bold">0{currentIndex + 1}</span>
+              <span className="text-sm">/</span>
+              <span className="text-sm text-[#eae1d8]/50">0{totalSlides}</span>
+            </div>
+
+            {/* Slider progress bar line */}
+            <div className="h-[2px] flex-1 max-w-xs bg-white/10 rounded-full overflow-hidden mx-4 hidden sm:block">
+              <motion.div
+                initial={false}
+                animate={{ width: `${((currentIndex + 1) / totalSlides) * 100}%` }}
+                transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+                className="h-full bg-[#f6c374]"
+              />
+            </div>
+
+            {/* Navigation Button Controls */}
+            <div className="flex gap-4">
+              <button
+                disabled={totalSlides <= 1}
+                onClick={() => {
+                  handlePrev();
+                  setIsHovered(true); // temporary pause autoplay on tap
+                  setTimeout(() => setIsHovered(false), 3000);
+                }}
+                aria-label="Kegiatan Sebelumnya"
+                className="w-10 h-10 sm:w-12 h-12 rounded-full border border-white/10 disabled:opacity-20 disabled:pointer-events-none flex items-center justify-center text-[#eae1d8] hover:bg-white/5 hover:border-[#f6c374] hover:text-[#f6c374] active:scale-95 transition-all duration-300 cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4 sm:w-5 h-5" />
+              </button>
+              <button
+                disabled={totalSlides <= 1}
+                onClick={() => {
+                  handleNext();
+                  setIsHovered(true); // temporary pause autoplay on tap
+                  setTimeout(() => setIsHovered(false), 3000);
+                }}
+                aria-label="Kegiatan Berikutnya"
+                className="w-10 h-10 sm:w-12 h-12 rounded-full border border-white/10 disabled:opacity-20 disabled:pointer-events-none flex items-center justify-center text-[#eae1d8] hover:bg-white/5 hover:border-[#f6c374] hover:text-[#f6c374] active:scale-95 transition-all duration-300 cursor-pointer"
+              >
+                <ArrowRight className="w-4 h-4 sm:w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+  );
+}
+

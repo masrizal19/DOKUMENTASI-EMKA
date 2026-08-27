@@ -1,0 +1,6 @@
+{
+  "name": "Galeri Emka",
+  "description": "Premium cinematic photography gallery website with secure admin controls and dynamic photo management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
