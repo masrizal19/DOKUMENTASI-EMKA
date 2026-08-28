@@ -18,7 +18,10 @@ import {
   Link as LinkIcon,
   Loader2,
   CheckCircle,
-  FileText
+  FileText,
+  X,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { supabase } from "../lib/supabase.js";
 import { fallbackData } from "../lib/fallbackData.js";
@@ -129,9 +132,13 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
     enable_foto_terbaru_page: true,
     slideshow_duration: 5,
     slideshow_transition: "Fade",
-    slideshow_blur: 35
+    slideshow_blur: 35,
+    slideshow_source: "latest",
+    slideshow_limit: 5,
+    slideshow_gallery_ids: []
   });
 
+  const [slideshowPreviewIndex, setSlideshowPreviewIndex] = useState(0);
   const [uploadLoading, setUploadLoading] = useState(false);
   const [selectedActivityForPhotos, setSelectedActivityForPhotos] = useState<string>("all");
 
@@ -192,6 +199,9 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
           slideshow_duration: raw.slideshow_duration ?? 5,
           slideshow_transition: raw.slideshow_transition ?? "Fade",
           slideshow_blur: raw.slideshow_blur ?? 35,
+          slideshow_source: raw.slideshow_source || "latest",
+          slideshow_limit: typeof raw.slideshow_limit === "number" ? raw.slideshow_limit : 5,
+          slideshow_gallery_ids: Array.isArray(raw.slideshow_gallery_ids) ? raw.slideshow_gallery_ids : [],
           copyright_year: raw.copyright_year || "2026",
           copyright_author: raw.copyright_author || ""
         };
@@ -2312,11 +2322,285 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
                   </div>
 
                   <div className="border-t border-[#4f4538]/10 pt-6 mt-8">
-                    <h4 className="font-display text-sm font-bold text-[#f6c374] mb-1 uppercase tracking-wider">Pengaturan Slideshow</h4>
-                    <p className="text-xs text-[#9b8f7f] mb-6">Atur durasi, gaya transisi, dan tingkat keburaman slideshow pada halaman utama.</p>
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-6">
+                      <div>
+                        <h4 className="font-display text-sm font-bold text-[#f6c374] uppercase tracking-wider">
+                          Pengaturan Slideshow
+                        </h4>
+                        <p className="text-xs text-[#9b8f7f] mt-0.5">
+                          Atur batas jumlah slide, sumber foto kegiatan, durasi, transisi, dan tingkat keburaman latar belakang.
+                        </p>
+                      </div>
+                    </div>
                     
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                      <div className="space-y-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                      {/* Left Column: Form Controls (7 cols) */}
+                      <div className="lg:col-span-7 space-y-6">
+                        
+                        {/* 1. BATAS JUMLAH SLIDE */}
+                        <div className="bg-[#110e09]/60 border border-[#4f4538]/20 rounded p-4 space-y-3">
+                          <div className="flex justify-between items-center">
+                            <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading">
+                              JUMLAH SLIDE
+                            </label>
+                            <span className="text-[#f6c374] font-bold text-xs">
+                              {settingsFormData.slideshow_limit ?? 5} SLIDE
+                            </span>
+                          </div>
+
+                          <select
+                            value={settingsFormData.slideshow_limit ?? 5}
+                            onChange={(e) => {
+                              const newLimit = Number(e.target.value);
+                              setSettingsFormData(prev => {
+                                const currentIds = prev.slideshow_gallery_ids || [];
+                                const trimmedIds = currentIds.slice(0, newLimit);
+                                return {
+                                  ...prev,
+                                  slideshow_limit: newLimit,
+                                  slideshow_gallery_ids: trimmedIds
+                                };
+                              });
+                            }}
+                            className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2 px-3 text-xs text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
+                          >
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
+                              <option key={n} value={n}>
+                                {n} Slide {n === 5 ? "(Bawaan / Default)" : ""}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-[10px] text-[#9b8f7f]">
+                            Tentukan batas maksimum jumlah slide yang ditampilkan pada slideshow beranda (1 sampai 10 slide).
+                          </p>
+                        </div>
+
+                        {/* 2. SUMBER SLIDESHOW */}
+                        <div className="bg-[#110e09]/60 border border-[#4f4538]/20 rounded p-4 space-y-4">
+                          <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading block">
+                            SUMBER SLIDESHOW
+                          </label>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {/* Option A: GAMBAR TERBARU */}
+                            <label
+                              className={`flex items-start gap-3 p-3.5 rounded border cursor-pointer transition-all ${
+                                (settingsFormData.slideshow_source ?? "latest") === "latest"
+                                  ? "bg-[#f6c374]/15 border-[#f6c374] text-[#eae1d8]"
+                                  : "bg-[#110e09] border-[#4f4538]/30 text-[#9b8f7f] hover:border-[#4f4538]"
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name="slideshow_source"
+                                value="latest"
+                                checked={(settingsFormData.slideshow_source ?? "latest") === "latest"}
+                                onChange={() => setSettingsFormData(prev => ({ ...prev, slideshow_source: "latest" }))}
+                                className="mt-0.5 text-[#f6c374] focus:ring-[#f6c374] bg-[#110e09] border-[#4f4538]"
+                              />
+                              <div className="space-y-1">
+                                <span className="font-display text-xs font-bold text-[#eae1d8] block">
+                                  GAMBAR TERBARU
+                                </span>
+                                <p className="text-[10px] leading-relaxed text-[#9b8f7f]">
+                                  Otomatis mengambil {settingsFormData.slideshow_limit ?? 5} foto kegiatan terbaru yang telah dipublikasikan.
+                                </p>
+                              </div>
+                            </label>
+
+                            {/* Option B: PILIH DARI GALERI */}
+                            <label
+                              className={`flex items-start gap-3 p-3.5 rounded border cursor-pointer transition-all ${
+                                (settingsFormData.slideshow_source ?? "latest") === "gallery"
+                                  ? "bg-[#f6c374]/15 border-[#f6c374] text-[#eae1d8]"
+                                  : "bg-[#110e09] border-[#4f4538]/30 text-[#9b8f7f] hover:border-[#4f4538]"
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name="slideshow_source"
+                                value="gallery"
+                                checked={(settingsFormData.slideshow_source ?? "latest") === "gallery"}
+                                onChange={() => setSettingsFormData(prev => ({ ...prev, slideshow_source: "gallery" }))}
+                                className="mt-0.5 text-[#f6c374] focus:ring-[#f6c374] bg-[#110e09] border-[#4f4538]"
+                              />
+                              <div className="space-y-1">
+                                <span className="font-display text-xs font-bold text-[#eae1d8] block">
+                                  PILIH DARI GALERI
+                                </span>
+                                <p className="text-[10px] leading-relaxed text-[#9b8f7f]">
+                                  Pilih dan centang foto kegiatan secara manual dari galeri sesuai jumlah slide yang ditentukan.
+                                </p>
+                              </div>
+                            </label>
+                          </div>
+
+                          {/* PENGATURAN PILIH DARI GALERI (Hanya bila mode gallery aktif) */}
+                          {(settingsFormData.slideshow_source === "gallery") && (
+                            <div className="space-y-4 pt-3 border-t border-[#4f4538]/20 mt-3">
+                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                                <div>
+                                  <h5 className="font-display text-xs font-bold text-[#eae1d8] uppercase tracking-wider">
+                                    Daftar Foto Galeri untuk Slideshow
+                                  </h5>
+                                  <p className="text-[10px] text-[#9b8f7f]">
+                                    Centang foto yang ingin ditampilkan di slideshow.
+                                  </p>
+                                </div>
+                                {/* Counter Badge */}
+                                <div className={`px-3 py-1 rounded text-xs font-subheading font-bold uppercase tracking-wider border ${
+                                  (settingsFormData.slideshow_gallery_ids?.length || 0) === (settingsFormData.slideshow_limit ?? 5)
+                                    ? "bg-[#f6c374]/20 border-[#f6c374] text-[#f6c374]"
+                                    : "bg-[#110e09] border-[#4f4538]/40 text-[#eae1d8]"
+                                }`}>
+                                  {settingsFormData.slideshow_gallery_ids?.length || 0} / {settingsFormData.slideshow_limit ?? 5} slide dipilih
+                                </div>
+                              </div>
+
+                              {/* Alert if limit is reached */}
+                              {(settingsFormData.slideshow_gallery_ids?.length || 0) >= (settingsFormData.slideshow_limit ?? 5) && (
+                                <div className="p-2.5 rounded bg-[#f6c374]/10 border border-[#f6c374]/30 text-[10px] text-[#f6c374]">
+                                  <span className="font-bold">Batas Tercapai:</span> Jumlah pilihan ({settingsFormData.slideshow_limit ?? 5} slide) sudah penuh. Lepas centang salah satu foto jika ingin memilih foto lain.
+                                </div>
+                              )}
+
+                              {/* URUTAN SLIDE MANUAL (Reordering controls) */}
+                              {(settingsFormData.slideshow_gallery_ids?.length || 0) > 0 && (
+                                <div className="space-y-2 bg-[#17130e] p-3 rounded border border-[#4f4538]/20">
+                                  <span className="text-[10px] text-[#f6c374] uppercase font-subheading font-bold block">
+                                    Urutan Slide yang Ditampilkan:
+                                  </span>
+                                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                                    {settingsFormData.slideshow_gallery_ids?.map((id, seqIdx) => {
+                                      const act = activities.find(a => a.id === id);
+                                      if (!act) return null;
+                                      return (
+                                        <div key={id} className="flex items-center justify-between p-2 rounded bg-[#110e09] border border-[#4f4538]/30 gap-2">
+                                          <div className="flex items-center gap-2.5 min-w-0">
+                                            <span className="w-5 h-5 rounded-full bg-[#f6c374] text-[#110e09] font-bold text-[10px] flex items-center justify-center flex-shrink-0">
+                                              {seqIdx + 1}
+                                            </span>
+                                            <img
+                                              src={act.cover_image}
+                                              alt=""
+                                              className="w-8 h-8 rounded object-cover flex-shrink-0 border border-white/10"
+                                              referrerPolicy="no-referrer"
+                                            />
+                                            <div className="min-w-0">
+                                              <p className="text-xs font-bold text-[#eae1d8] truncate">{act.title}</p>
+                                              <p className="text-[9px] text-[#9b8f7f] truncate">{act.category} • {act.date}</p>
+                                            </div>
+                                          </div>
+                                          <div className="flex items-center gap-1 flex-shrink-0">
+                                            <button
+                                              type="button"
+                                              disabled={seqIdx === 0}
+                                              onClick={() => {
+                                                const current = [...(settingsFormData.slideshow_gallery_ids || [])];
+                                                const [moved] = current.splice(seqIdx, 1);
+                                                current.splice(seqIdx - 1, 0, moved);
+                                                setSettingsFormData(prev => ({ ...prev, slideshow_gallery_ids: current }));
+                                              }}
+                                              className="p-1 rounded border border-[#4f4538]/30 hover:border-[#f6c374] hover:text-[#f6c374] text-[#9b8f7f] disabled:opacity-20 disabled:pointer-events-none transition-colors"
+                                              title="Geser Naik"
+                                            >
+                                              <ChevronUp className="w-3.5 h-3.5" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              disabled={seqIdx === (settingsFormData.slideshow_gallery_ids?.length || 0) - 1}
+                                              onClick={() => {
+                                                const current = [...(settingsFormData.slideshow_gallery_ids || [])];
+                                                const [moved] = current.splice(seqIdx, 1);
+                                                current.splice(seqIdx + 1, 0, moved);
+                                                setSettingsFormData(prev => ({ ...prev, slideshow_gallery_ids: current }));
+                                              }}
+                                              className="p-1 rounded border border-[#4f4538]/30 hover:border-[#f6c374] hover:text-[#f6c374] text-[#9b8f7f] disabled:opacity-20 disabled:pointer-events-none transition-colors"
+                                              title="Geser Turun"
+                                            >
+                                              <ChevronDown className="w-3.5 h-3.5" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setSettingsFormData(prev => ({
+                                                  ...prev,
+                                                  slideshow_gallery_ids: (prev.slideshow_gallery_ids || []).filter(item => item !== id)
+                                                }));
+                                              }}
+                                              className="p-1 rounded border border-red-500/30 hover:border-red-500 text-red-400 hover:bg-red-500/10 transition-colors ml-1"
+                                              title="Hapus dari Slideshow"
+                                            >
+                                              <X className="w-3.5 h-3.5" />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Daftar Foto Kegiatan untuk Dicentang */}
+                              <div className="space-y-1.5">
+                                <span className="text-[10px] text-[#9b8f7f] uppercase font-subheading block">
+                                  Daftar Foto / Kegiatan Tersedia:
+                                </span>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1">
+                                  {activities.filter(act => act.cover_image).map(act => {
+                                    const isSelected = (settingsFormData.slideshow_gallery_ids || []).includes(act.id);
+                                    const currentSelectedCount = settingsFormData.slideshow_gallery_ids?.length || 0;
+                                    const limit = settingsFormData.slideshow_limit ?? 5;
+                                    const isLimitReached = !isSelected && currentSelectedCount >= limit;
+
+                                    return (
+                                      <label
+                                        key={act.id}
+                                        className={`flex items-center gap-3 p-2.5 rounded border transition-all ${
+                                          isSelected
+                                            ? "bg-[#f6c374]/15 border-[#f6c374] text-[#eae1d8]"
+                                            : isLimitReached
+                                            ? "opacity-40 bg-[#110e09] border-[#4f4538]/20 cursor-not-allowed text-[#9b8f7f]"
+                                            : "bg-[#110e09] border-[#4f4538]/30 hover:border-[#4f4538] cursor-pointer text-[#d3c4b3]"
+                                        }`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          disabled={isLimitReached}
+                                          onChange={(e) => {
+                                            const current = [...(settingsFormData.slideshow_gallery_ids || [])];
+                                            if (e.target.checked) {
+                                              if (current.length < limit) {
+                                                current.push(act.id);
+                                                setSettingsFormData(prev => ({ ...prev, slideshow_gallery_ids: current }));
+                                              }
+                                            } else {
+                                              const updated = current.filter(id => id !== act.id);
+                                              setSettingsFormData(prev => ({ ...prev, slideshow_gallery_ids: updated }));
+                                            }
+                                          }}
+                                          className="w-4 h-4 rounded text-[#f6c374] focus:ring-[#f6c374] bg-[#110e09] border-[#4f4538] cursor-pointer disabled:cursor-not-allowed"
+                                        />
+                                        <img
+                                          src={act.cover_image}
+                                          alt=""
+                                          className="w-12 h-12 rounded object-cover flex-shrink-0 border border-white/10"
+                                          referrerPolicy="no-referrer"
+                                        />
+                                        <div className="min-w-0 flex-1">
+                                          <p className="text-xs font-bold text-[#eae1d8] truncate">{act.title}</p>
+                                          <p className="text-[10px] text-[#9b8f7f] truncate">{act.category} • {act.date}</p>
+                                        </div>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 3. PENGATURAN DURASI, TRANSIASI & TINGKAT KEBURAMAN */}
                         <div className="bg-[#110e09]/60 border border-[#4f4538]/20 rounded p-4 space-y-6">
                           <div className="space-y-2">
                             <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading flex justify-between">
@@ -2360,7 +2644,7 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
 
                           <div className="space-y-2">
                             <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading flex justify-between">
-                              <span>Tingkat Keburaman</span>
+                              <span>Tingkat Keburaman Latar Belakang (Blur)</span>
                               <span className="text-[#f6c374]">{settingsFormData.slideshow_blur ?? 35}%</span>
                             </label>
                             <input
@@ -2377,28 +2661,140 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
                             </div>
                           </div>
                         </div>
+
                       </div>
 
-                      <div className="bg-[#110e09]/60 border border-[#4f4538]/20 rounded p-4">
-                        <h5 className="text-[10px] text-[#9b8f7f] uppercase font-subheading mb-3">Preview Slideshow</h5>
-                        
-                        <div className="relative aspect-video rounded overflow-hidden bg-[#17130e] border border-[#4f4538]/40 flex items-center justify-center">
-                          <img 
-                             src="https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&q=80" 
-                             alt="preview"
-                             className="absolute inset-0 w-full h-full object-cover transition-all duration-1000 transform scale-105"
-                             style={{ filter: `brightness(0.5) blur(${((settingsFormData.slideshow_blur ?? 35) / 100) * 12}px)` }}
-                          />
-                          <div className="relative z-10 text-center space-y-1">
-                             <div className="text-white font-display font-bold text-sm shadow-black drop-shadow-md">PREVIEW FOTO</div>
-                             <div className="text-white/90 text-[10px] font-subheading bg-black/60 px-3 py-2 rounded backdrop-blur">
-                               Transisi: {settingsFormData.slideshow_transition ?? 'Fade'} <br/>
-                               Durasi: {settingsFormData.slideshow_duration ?? 5} detik <br/>
-                               Blur: {settingsFormData.slideshow_blur ?? 35}%
-                             </div>
-                          </div>
-                        </div>
+                      {/* Right Column: Interactive Real-time Preview (5 cols) */}
+                      <div className="lg:col-span-5">
+                        {(() => {
+                          const source = settingsFormData.slideshow_source ?? "latest";
+                          const limit = settingsFormData.slideshow_limit ?? 5;
+                          const selectedIds = settingsFormData.slideshow_gallery_ids || [];
+
+                          let activeSlides: Activity[] = [];
+                          if (source === "gallery") {
+                            const picked: Activity[] = [];
+                            selectedIds.forEach(id => {
+                              const found = activities.find(a => a.id === id);
+                              if (found && found.cover_image) picked.push(found);
+                            });
+                            activeSlides = picked.slice(0, limit);
+                          } else {
+                            const valid = activities
+                              .filter(a => (a.status === "published" || a.status === undefined) && Boolean(a.cover_image))
+                              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                            activeSlides = valid.slice(0, limit);
+                          }
+
+                          const totalAvailableSlides = activeSlides.length;
+                          const currentSlideIndex = totalAvailableSlides > 0 
+                            ? (slideshowPreviewIndex % totalAvailableSlides) 
+                            : 0;
+                          const currentSlide = activeSlides[currentSlideIndex];
+                          const previewCover = currentSlide?.cover_image || "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&q=80";
+
+                          return (
+                            <div className="bg-[#110e09]/60 border border-[#4f4538]/20 rounded p-4 sticky top-6 space-y-4">
+                              <div className="flex justify-between items-center">
+                                <h5 className="text-[10px] text-[#9b8f7f] uppercase font-subheading font-bold">
+                                  Preview Slideshow Halaman Utama
+                                </h5>
+                                <span className="text-[9px] font-mono text-[#f6c374] bg-[#f6c374]/10 border border-[#f6c374]/30 px-2 py-0.5 rounded">
+                                  {totalAvailableSlides} Slide Aktif
+                                </span>
+                              </div>
+
+                              <div className="relative aspect-video rounded overflow-hidden bg-[#17130e] border border-[#4f4538]/40 flex flex-col justify-between p-4 group">
+                                {/* Blurred Background preview */}
+                                <img 
+                                  key={`prev-bg-${currentSlide?.id || 'default'}`}
+                                  src={previewCover} 
+                                  alt="preview background"
+                                  className="absolute inset-0 w-full h-full object-cover transition-all duration-700 transform scale-105"
+                                  style={{ filter: `brightness(0.35) blur(${((settingsFormData.slideshow_blur ?? 35) / 100) * 12}px)` }}
+                                  referrerPolicy="no-referrer"
+                                />
+
+                                {/* Foreground Mock Card */}
+                                <div className="relative z-10 flex flex-col items-center justify-center flex-1 my-auto">
+                                  <div className="w-32 h-20 rounded-md overflow-hidden border border-white/20 shadow-2xl relative">
+                                    <img 
+                                      src={previewCover}
+                                      alt="mock card"
+                                      className="w-full h-full object-cover"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
+                                    <span className="absolute bottom-1 left-1.5 text-[7px] text-[#f6c374] font-bold uppercase truncate max-w-[90%]">
+                                      {currentSlide?.category || "DOKUMENTASI"}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Text & Controls overlay in preview */}
+                                <div className="relative z-10 flex items-center justify-between gap-2 border-t border-white/10 pt-2 bg-black/40 px-2.5 py-1.5 rounded backdrop-blur-sm">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-white font-display font-bold text-xs truncate">
+                                      {currentSlide?.title || "Judul Kegiatan Slideshow"}
+                                    </p>
+                                    <p className="text-white/70 text-[9px] truncate">
+                                      Sumber: {source === "gallery" ? "PILIH DARI GALERI" : "GAMBAR TERBARU"} • {settingsFormData.slideshow_duration ?? 5}s • {settingsFormData.slideshow_transition ?? "Fade"}
+                                    </p>
+                                  </div>
+
+                                  {/* Slide Switcher Arrows */}
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      disabled={totalAvailableSlides <= 1}
+                                      onClick={() => setSlideshowPreviewIndex(prev => (prev - 1 + totalAvailableSlides) % totalAvailableSlides)}
+                                      className="p-1 rounded bg-white/10 hover:bg-[#f6c374] hover:text-[#110e09] text-white disabled:opacity-20 transition-colors"
+                                      title="Slide Sebelumnya"
+                                    >
+                                      <ChevronLeft className="w-3.5 h-3.5" />
+                                    </button>
+                                    <span className="text-[10px] font-mono text-[#f6c374] px-1 font-bold">
+                                      {totalAvailableSlides > 0 ? currentSlideIndex + 1 : 0}/{totalAvailableSlides}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      disabled={totalAvailableSlides <= 1}
+                                      onClick={() => setSlideshowPreviewIndex(prev => (prev + 1) % totalAvailableSlides)}
+                                      className="p-1 rounded bg-white/10 hover:bg-[#f6c374] hover:text-[#110e09] text-white disabled:opacity-20 transition-colors"
+                                      title="Slide Berikutnya"
+                                    >
+                                      <ChevronRight className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Summary Info */}
+                              <div className="p-3 bg-[#17130e] rounded border border-[#4f4538]/20 space-y-1.5 text-xs">
+                                <div className="flex justify-between text-[#9b8f7f] text-[10px]">
+                                  <span>Konfigurasi Sumber:</span>
+                                  <span className="text-[#eae1d8] font-bold">
+                                    {source === "gallery" ? "PILIH DARI GALERI" : "GAMBAR TERBARU"}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between text-[#9b8f7f] text-[10px]">
+                                  <span>Batas Tampilan:</span>
+                                  <span className="text-[#eae1d8] font-bold">{limit} Slide</span>
+                                </div>
+                                <div className="flex justify-between text-[#9b8f7f] text-[10px]">
+                                  <span>Durasi Pergantian:</span>
+                                  <span className="text-[#eae1d8] font-bold">{settingsFormData.slideshow_duration ?? 5} Detik</span>
+                                </div>
+                                <div className="flex justify-between text-[#9b8f7f] text-[10px]">
+                                  <span>Gaya Transisi:</span>
+                                  <span className="text-[#eae1d8] font-bold">{settingsFormData.slideshow_transition ?? "Fade"}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
+
                     </div>
                   </div>
 

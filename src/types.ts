@@ -99,6 +99,9 @@ export interface Settings {
   slideshow_duration?: number;
   slideshow_transition?: string;
   slideshow_blur?: number;
+  slideshow_source?: 'latest' | 'gallery' | 'GAMBAR TERBARU' | 'PILIH DARI GALERI';
+  slideshow_limit?: number;
+  slideshow_gallery_ids?: string[];
 
   // Copyright Settings
   copyright_year?: string;

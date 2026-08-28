@@ -144,6 +144,9 @@ export default function App() {
           slideshow_duration: raw.slideshow_duration ?? 5,
           slideshow_transition: raw.slideshow_transition ?? "Fade",
           slideshow_blur: raw.slideshow_blur ?? 35,
+          slideshow_source: raw.slideshow_source || "latest",
+          slideshow_limit: typeof raw.slideshow_limit === "number" ? raw.slideshow_limit : 5,
+          slideshow_gallery_ids: Array.isArray(raw.slideshow_gallery_ids) ? raw.slideshow_gallery_ids : [],
           copyright_year: raw.copyright_year || "2026",
           copyright_author: raw.copyright_author || ""
         };

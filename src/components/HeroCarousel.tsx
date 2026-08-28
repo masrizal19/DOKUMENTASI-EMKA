@@ -58,34 +58,37 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
   // Determine slide items based on Settings
   let activeActivities: Activity[] = [];
 
-  if (settings && settings.hero_source === "manual") {
-    // If a specific activity is featured
-    if (settings.hero_activity_id) {
-      const selectedAct = activities.find(a => a.id === settings.hero_activity_id);
-      if (selectedAct) {
-        activeActivities = [selectedAct];
+  const sourceMode = settings?.slideshow_source || "latest";
+  const slideLimit = typeof settings?.slideshow_limit === "number" && settings.slideshow_limit > 0 
+    ? settings.slideshow_limit 
+    : 5;
+  const galleryIds = Array.isArray(settings?.slideshow_gallery_ids) ? settings.slideshow_gallery_ids : [];
+
+  if (sourceMode === "gallery" || sourceMode === "PILIH DARI GALERI") {
+    // 1. "PILIH DARI GALERI": Display activities picked by admin in exact order
+    const ordered: Activity[] = [];
+    galleryIds.forEach(id => {
+      const foundAct = activities.find(a => a.id === id);
+      if (foundAct && foundAct.cover_image && (foundAct.status === "published" || foundAct.status === undefined)) {
+        ordered.push(foundAct);
       }
-    }
-    
-    // If no featured activity, or we want custom title/desc override
+    });
+    activeActivities = ordered.slice(0, slideLimit);
+
+    // Fallback if none are selected
     if (activeActivities.length === 0) {
-      activeActivities = [{
-        id: "hero-manual",
-        title: settings.hero_title || "GALERI EMKA",
-        slug: "",
-        category: settings.hero_label || "DOKUMENTASI SINEMATIK",
-        date: new Date().toISOString(),
-        description: settings.hero_description || "Elevating School Memories.",
-        cover_image: settings.hero_image || "https://lh3.googleusercontent.com/aida-public/AB6AXuDiwkKynY0e3IvvUAxEmtVZ2u6YZsowG5mH3l-zc6gcn5mgrMmkyLvOFh0ly7EMHYxMeLM6YbZfoIuD28BSAt6kQSyyS2xerZiM8e8Y2nBQ3wHh4h1KsBlXB1CgSdokMiaOQqGjzCv-N5FBMdWyescacStvofAlUq4Ssr_mwwCviBoNGNiEucMbgxtUSUcrOPn-gYMIpk7adM_Sr0Nzag2CcpWUo29jNQLnQAOhKxFYIJ1QHdbMV74X",
-        background_video: settings.hero_video,
-        status: "published",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }];
+      const validActs = activities
+        .filter(act => (act.status === "published" || act.status === undefined) && Boolean(act.cover_image))
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      activeActivities = validActs.slice(0, slideLimit);
     }
   } else {
-    // Auto mode: show all published activities
-    activeActivities = activities.filter(act => act.status === "published");
+    // 2. "GAMBAR TERBARU": Sort by newest date, filter valid cover_images, take slideLimit
+    const validActs = activities
+      .filter(act => (act.status === "published" || act.status === undefined) && Boolean(act.cover_image))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    activeActivities = validActs.slice(0, slideLimit);
   }
 
   const totalSlides = activeActivities.length;

@@ -127,6 +127,12 @@ export const fallbackData = {
     ],
     "enable_kegiatan_page": true,
     "enable_foto_terbaru_page": true,
+    "slideshow_duration": 5,
+    "slideshow_transition": "Fade",
+    "slideshow_blur": 35,
+    "slideshow_source": "latest",
+    "slideshow_limit": 5,
+    "slideshow_gallery_ids": [],
     "copyright_year": "2026",
     "copyright_author": ""
   }
