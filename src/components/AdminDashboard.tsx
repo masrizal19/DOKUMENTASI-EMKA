@@ -133,6 +133,8 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
     sections: [],
     enable_kegiatan_page: true,
     enable_foto_terbaru_page: true,
+    homepage_gallery_limit: 6,
+    homepage_gallery_photo_ids: [],
     slideshow_duration: 5,
     slideshow_transition: "Fade",
     slideshow_blur: 35,
@@ -142,6 +144,7 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
   });
 
   const [slideshowPreviewIndex, setSlideshowPreviewIndex] = useState(0);
+  const [homepageGalleryActivityFilter, setHomepageGalleryActivityFilter] = useState<string[]>([]);
   const [uploadLoading, setUploadLoading] = useState(false);
   const [selectedActivityForPhotos, setSelectedActivityForPhotos] = useState<string>("all");
 
@@ -199,6 +202,8 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
           sections: raw.sections || [],
           enable_kegiatan_page: raw.enable_kegiatan_page ?? true,
           enable_foto_terbaru_page: raw.enable_foto_terbaru_page ?? true,
+          homepage_gallery_limit: typeof raw.homepage_gallery_limit === "number" ? raw.homepage_gallery_limit : 6,
+          homepage_gallery_photo_ids: Array.isArray(raw.homepage_gallery_photo_ids) ? raw.homepage_gallery_photo_ids : [],
           slideshow_duration: raw.slideshow_duration ?? 5,
           slideshow_transition: raw.slideshow_transition ?? "Fade",
           slideshow_blur: raw.slideshow_blur ?? 35,
@@ -255,6 +260,20 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
 
       setActivities(mappedActivities);
       setPhotos(mappedPhotos);
+
+      if (mappedActivities.length > 0) {
+        setHomepageGalleryActivityFilter(prev => {
+          if (prev.length > 0) return prev;
+          const selectedPhotoIds = activeSet?.homepage_gallery_photo_ids || [];
+          if (selectedPhotoIds.length > 0) {
+            const actIds = mappedPhotos
+              .filter(p => selectedPhotoIds.includes(p.id))
+              .map(p => p.activity_id);
+            return actIds.length > 0 ? Array.from(new Set(actIds)) : mappedActivities.map(a => a.id);
+          }
+          return mappedActivities.map(a => a.id);
+        });
+      }
       if (activeSet) {
         setSettings(activeSet);
         setSettingsFormData(activeSet);
@@ -2502,6 +2521,437 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
                           </div>
                         );
                       })}
+                  </div>
+
+                  {/* GALERI FOTO BERANDA */}
+                  <div className="border-t border-[#4f4538]/10 pt-6 mt-8">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-6">
+                      <div>
+                        <h4 className="font-display text-sm font-bold text-[#f6c374] uppercase tracking-wider">
+                          GALERI FOTO BERANDA
+                        </h4>
+                        <p className="text-xs text-[#9b8f7f] mt-0.5">
+                          Atur batas jumlah foto (maksimal 15), pilih foto dari kegiatan sekolah, atur urutan tampil (↑ / ↓), dan tinjau live preview untuk Galeri Foto di Beranda.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-6">
+                      {/* 1. JUMLAH FOTO YANG DITAMPILKAN */}
+                      <div className="bg-[#110e09]/60 border border-[#4f4538]/20 rounded p-4 space-y-3">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading block">
+                              JUMLAH FOTO YANG DITAMPILKAN
+                            </label>
+                            <span className="text-[11px] text-[#eae1d8] block mt-0.5">
+                              Pilih batas foto yang akan ditampilkan pada section Galeri Foto di Beranda (1 s.d. 15 foto).
+                            </span>
+                          </div>
+                          <span className="text-[#f6c374] font-bold text-xs bg-[#f6c374]/10 border border-[#f6c374]/30 px-3 py-1 rounded">
+                            {settingsFormData.homepage_gallery_limit ?? 6} Foto
+                          </span>
+                        </div>
+
+                        <select
+                          value={settingsFormData.homepage_gallery_limit ?? 6}
+                          onChange={(e) => {
+                            const newLimit = Number(e.target.value);
+                            setSettingsFormData(prev => {
+                              const currentIds = prev.homepage_gallery_photo_ids || [];
+                              const updatedIds = currentIds.slice(0, newLimit);
+                              return {
+                                ...prev,
+                                homepage_gallery_limit: newLimit,
+                                homepage_gallery_photo_ids: updatedIds
+                              };
+                            });
+                          }}
+                          className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2 px-3 text-xs text-[#eae1d8] focus:outline-none focus:border-[#f6c374] cursor-pointer"
+                        >
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map(num => (
+                            <option key={num} value={num}>
+                              {num} Foto {num === 6 ? "(Bawaan)" : ""}
+                            </option>
+                          ))}
+                        </select>
+
+                        <div className="flex items-center justify-between text-[11px] pt-1">
+                          <span className="text-[#9b8f7f]">
+                            Status Pemilihan: <strong className="text-[#f6c374]">{(settingsFormData.homepage_gallery_photo_ids || []).length}</strong> dari <strong className="text-[#eae1d8]">{settingsFormData.homepage_gallery_limit ?? 6}</strong> foto terpilih
+                          </span>
+                          {(settingsFormData.homepage_gallery_photo_ids || []).length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setSettingsFormData(prev => ({ ...prev, homepage_gallery_photo_ids: [] }))}
+                              className="text-[10px] text-red-400/80 hover:text-red-400 underline transition-colors"
+                            >
+                              Kosongkan Pilihan Foto
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 2. PILIH FOTO DARI KEGIATAN */}
+                      <div className="bg-[#110e09]/60 border border-[#4f4538]/20 rounded p-4 space-y-4">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                          <div>
+                            <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading block">
+                              PILIH FOTO DARI KEGIATAN
+                            </label>
+                            <p className="text-[11px] text-[#9b8f7f] mt-0.5">
+                              Centang kegiatan di bawah untuk melihat dan memilih foto yang akan dimasukkan ke Beranda.
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setHomepageGalleryActivityFilter(activities.map(a => a.id))}
+                              className="text-[10px] px-2.5 py-1 rounded bg-[#4f4538]/20 hover:bg-[#4f4538]/40 text-[#eae1d8] transition-colors"
+                            >
+                              Pilih Semua Kegiatan
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setHomepageGalleryActivityFilter([])}
+                              className="text-[10px] px-2.5 py-1 rounded bg-[#4f4538]/20 hover:bg-[#4f4538]/40 text-[#9b8f7f] hover:text-[#eae1d8] transition-colors"
+                            >
+                              Bersihkan Filter
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Activity Filter Checkboxes */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-2 bg-[#110e09]/80 border border-[#4f4538]/20 rounded">
+                          {activities.length === 0 ? (
+                            <p className="text-xs text-[#9b8f7f] p-2 col-span-full">Belum ada kegiatan terdaftar.</p>
+                          ) : (
+                            activities.map(act => {
+                              const isActChecked = homepageGalleryActivityFilter.includes(act.id);
+                              const actPhotos = photos.filter(p => p.activity_id === act.id);
+                              const selectedInAct = (settingsFormData.homepage_gallery_photo_ids || []).filter(pId => actPhotos.some(p => p.id === pId)).length;
+
+                              return (
+                                <label
+                                  key={act.id}
+                                  className={`flex items-center gap-2.5 p-2 rounded cursor-pointer border transition-colors ${
+                                    isActChecked
+                                      ? "bg-[#f6c374]/10 border-[#f6c374]/40 text-[#eae1d8]"
+                                      : "bg-black/30 border-[#4f4538]/20 text-[#9b8f7f] hover:border-[#4f4538]/50"
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isActChecked}
+                                    onChange={() => {
+                                      setHomepageGalleryActivityFilter(prev =>
+                                        prev.includes(act.id) ? prev.filter(id => id !== act.id) : [...prev, act.id]
+                                      );
+                                    }}
+                                    className="rounded border-[#4f4538] text-[#f6c374] focus:ring-0 cursor-pointer accent-[#f6c374]"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-bold truncate">{act.title}</p>
+                                    <p className="text-[9px] text-[#9b8f7f]">
+                                      {actPhotos.length} foto {selectedInAct > 0 ? `(${selectedInAct} terpilih)` : ""}
+                                    </p>
+                                  </div>
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
+
+                        {/* Photo Picker Grid for Selected Activities */}
+                        <div className="space-y-3 pt-2">
+                          <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading block">
+                            DAFTAR FOTO UNTUK DIPILIH (KLIK ATAU CENTANG FOTO)
+                          </label>
+
+                          {(() => {
+                            const effectiveActivities = homepageGalleryActivityFilter.length > 0
+                              ? homepageGalleryActivityFilter
+                              : [];
+                            const displayedPhotos = photos.filter(p => effectiveActivities.includes(p.activity_id));
+
+                            if (homepageGalleryActivityFilter.length === 0) {
+                              return (
+                                <div className="p-6 text-center border border-dashed border-[#4f4538]/30 rounded text-xs text-[#9b8f7f]">
+                                  Centang minimal satu kegiatan di atas untuk melihat dan memilih foto.
+                                </div>
+                              );
+                            }
+
+                            if (displayedPhotos.length === 0) {
+                              return (
+                                <div className="p-6 text-center border border-dashed border-[#4f4538]/30 rounded text-xs text-[#9b8f7f]">
+                                  Kegiatan yang dipilih belum memiliki foto di galeri.
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 max-h-96 overflow-y-auto p-2 bg-[#110e09]/80 border border-[#4f4538]/20 rounded">
+                                {displayedPhotos.map(photo => {
+                                  const currentSelectedIds = settingsFormData.homepage_gallery_photo_ids || [];
+                                  const isSelected = currentSelectedIds.includes(photo.id);
+                                  const orderIndex = currentSelectedIds.indexOf(photo.id);
+                                  const actName = getActTitle(photo.activity_id);
+                                  const limit = settingsFormData.homepage_gallery_limit ?? 6;
+
+                                  const togglePhoto = () => {
+                                    if (isSelected) {
+                                      setSettingsFormData(prev => ({
+                                        ...prev,
+                                        homepage_gallery_photo_ids: (prev.homepage_gallery_photo_ids || []).filter(id => id !== photo.id)
+                                      }));
+                                    } else {
+                                      if (currentSelectedIds.length >= limit) {
+                                        onShowToast(`Maksimal ${limit} foto untuk Galeri Beranda.`, "error");
+                                        return;
+                                      }
+                                      setSettingsFormData(prev => ({
+                                        ...prev,
+                                        homepage_gallery_photo_ids: [...(prev.homepage_gallery_photo_ids || []), photo.id]
+                                      }));
+                                    }
+                                  };
+
+                                  return (
+                                    <div
+                                      key={photo.id}
+                                      onClick={togglePhoto}
+                                      className={`group relative rounded overflow-hidden border cursor-pointer transition-all duration-300 ${
+                                        isSelected
+                                          ? "border-[#f6c374] ring-2 ring-[#f6c374]/40 shadow-lg scale-[1.02]"
+                                          : "border-[#4f4538]/30 hover:border-[#f6c374]/50 opacity-75 hover:opacity-100"
+                                      }`}
+                                    >
+                                      <div className="aspect-square relative bg-black">
+                                        <img
+                                          src={photo.image_url}
+                                          alt={photo.title || ""}
+                                          className="w-full h-full object-cover"
+                                          referrerPolicy="no-referrer"
+                                        />
+
+                                        {/* Badge Order / Indicator */}
+                                        <div className="absolute top-1.5 right-1.5 z-10">
+                                          <div
+                                            className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold shadow ${
+                                              isSelected
+                                                ? "bg-[#f6c374] text-[#110e09]"
+                                                : "bg-black/70 text-white/50 border border-white/30 group-hover:border-[#f6c374]"
+                                            }`}
+                                          >
+                                            {isSelected ? `#${orderIndex + 1}` : ""}
+                                          </div>
+                                        </div>
+
+                                        {/* Activity label bottom */}
+                                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-1.5 text-left">
+                                          <p className="text-[9px] font-bold text-[#eae1d8] truncate">{actName}</p>
+                                          {photo.title && (
+                                            <p className="text-[8px] text-[#9b8f7f] truncate">{photo.title}</p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </div>
+
+                      {/* 3. ATUR URUTAN FOTO TERPILIH & PREVIEW */}
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                        {/* Left (6 cols): Reordering List */}
+                        <div className="lg:col-span-6 bg-[#110e09]/60 border border-[#4f4538]/20 rounded p-4 space-y-3">
+                          <div className="flex justify-between items-center">
+                            <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading block">
+                              ATUR URUTAN FOTO TERPILIH (↑ / ↓)
+                            </label>
+                            <span className="text-[10px] text-[#f6c374] font-semibold">
+                              {(settingsFormData.homepage_gallery_photo_ids || []).length} Foto Terpilih
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-[#9b8f7f]">
+                            Gunakan tombol panah untuk mengatur urutan tampil foto di Beranda. Urutan asli di kegiatan tidak terpengaruh.
+                          </p>
+
+                          {(settingsFormData.homepage_gallery_photo_ids || []).length === 0 ? (
+                            <div className="p-6 text-center border border-dashed border-[#4f4538]/30 rounded text-xs text-[#9b8f7f]">
+                              Belum ada foto yang dipilih. Centang foto dari kegiatan di atas untuk menambahkan.
+                            </div>
+                          ) : (
+                            <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                              {(settingsFormData.homepage_gallery_photo_ids || []).map((pId, idx, arr) => {
+                                const photoObj = photos.find(p => p.id === pId);
+                                if (!photoObj) return null;
+                                const actName = getActTitle(photoObj.activity_id);
+
+                                const moveUp = (e: React.MouseEvent) => {
+                                  e.stopPropagation();
+                                  if (idx === 0) return;
+                                  const newIds = [...arr];
+                                  const temp = newIds[idx];
+                                  newIds[idx] = newIds[idx - 1];
+                                  newIds[idx - 1] = temp;
+                                  setSettingsFormData(prev => ({ ...prev, homepage_gallery_photo_ids: newIds }));
+                                };
+
+                                const moveDown = (e: React.MouseEvent) => {
+                                  e.stopPropagation();
+                                  if (idx === arr.length - 1) return;
+                                  const newIds = [...arr];
+                                  const temp = newIds[idx];
+                                  newIds[idx] = newIds[idx + 1];
+                                  newIds[idx + 1] = temp;
+                                  setSettingsFormData(prev => ({ ...prev, homepage_gallery_photo_ids: newIds }));
+                                };
+
+                                const removePhoto = (e: React.MouseEvent) => {
+                                  e.stopPropagation();
+                                  setSettingsFormData(prev => ({
+                                    ...prev,
+                                    homepage_gallery_photo_ids: (prev.homepage_gallery_photo_ids || []).filter(id => id !== pId)
+                                  }));
+                                };
+
+                                return (
+                                  <div
+                                    key={pId}
+                                    className="flex items-center gap-3 p-2 rounded bg-black/40 border border-[#4f4538]/20 hover:border-[#f6c374]/30 transition-colors"
+                                  >
+                                    <span className="w-6 h-6 rounded bg-[#f6c374]/20 border border-[#f6c374]/40 text-[#f6c374] text-xs font-bold flex items-center justify-center shrink-0">
+                                      {idx + 1}
+                                    </span>
+
+                                    <div className="w-12 h-10 rounded overflow-hidden bg-black shrink-0 border border-white/10">
+                                      <img
+                                        src={photoObj.image_url}
+                                        alt={photoObj.title || ""}
+                                        className="w-full h-full object-cover"
+                                        referrerPolicy="no-referrer"
+                                      />
+                                    </div>
+
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs font-bold text-[#eae1d8] truncate">{actName}</p>
+                                      <p className="text-[10px] text-[#9b8f7f] truncate">{photoObj.title || "Tanpa Judul"}</p>
+                                    </div>
+
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <button
+                                        type="button"
+                                        disabled={idx === 0}
+                                        onClick={moveUp}
+                                        className="p-1 rounded bg-[#4f4538]/20 hover:bg-[#f6c374] hover:text-[#110e09] text-[#eae1d8] disabled:opacity-20 disabled:hover:bg-[#4f4538]/20 disabled:hover:text-[#eae1d8] transition-colors"
+                                        title="Pindahkan ke atas"
+                                      >
+                                        <ChevronUp className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={idx === arr.length - 1}
+                                        onClick={moveDown}
+                                        className="p-1 rounded bg-[#4f4538]/20 hover:bg-[#f6c374] hover:text-[#110e09] text-[#eae1d8] disabled:opacity-20 disabled:hover:bg-[#4f4538]/20 disabled:hover:text-[#eae1d8] transition-colors"
+                                        title="Pindahkan ke bawah"
+                                      >
+                                        <ChevronDown className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={removePhoto}
+                                        className="p-1 rounded bg-red-900/20 hover:bg-red-500 hover:text-white text-red-400 transition-colors ml-1"
+                                        title="Hapus dari Beranda"
+                                      >
+                                        <X className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Right (6 cols): Live Preview */}
+                        <div className="lg:col-span-6 bg-[#110e09]/60 border border-[#4f4538]/20 rounded p-4 space-y-3">
+                          <div className="flex justify-between items-center">
+                            <label className="text-[10px] text-[#9b8f7f] uppercase font-subheading block">
+                              PREVIEW GALERI BERANDA
+                            </label>
+                            <span className="text-[10px] text-[#f6c374] bg-[#f6c374]/10 border border-[#f6c374]/30 px-2 py-0.5 rounded">
+                              Live Preview
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-[#9b8f7f]">
+                            Simulasi tampilan grid galeri foto pada halaman Beranda sesuai foto dan urutan yang Anda pilih.
+                          </p>
+
+                          {(() => {
+                            const selectedIds = settingsFormData.homepage_gallery_photo_ids || [];
+                            const limit = settingsFormData.homepage_gallery_limit ?? 6;
+                            let previewPhotos: Photo[] = [];
+
+                            if (selectedIds.length > 0) {
+                              selectedIds.forEach(id => {
+                                const p = photos.find(item => item.id === id);
+                                if (p && !previewPhotos.some(prevP => prevP.id === p.id)) {
+                                  previewPhotos.push(p);
+                                }
+                              });
+                              previewPhotos = previewPhotos.slice(0, limit);
+                            } else {
+                              previewPhotos = photos.slice(0, limit);
+                            }
+
+                            if (previewPhotos.length === 0) {
+                              return (
+                                <div className="p-8 text-center border border-dashed border-[#4f4538]/30 rounded text-xs text-[#9b8f7f]">
+                                  Tidak ada foto untuk ditampilkan dalam preview.
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div className="space-y-2">
+                                <div className="grid grid-cols-3 gap-2 p-3 bg-black/60 border border-[#4f4538]/20 rounded">
+                                  {previewPhotos.map((p, pIdx) => (
+                                    <div
+                                      key={p.id}
+                                      className="group relative aspect-[4/3] rounded-sm overflow-hidden border border-[#4f4538]/20 bg-[#110e09]"
+                                    >
+                                      <img
+                                        src={p.image_url}
+                                        alt={p.title || ""}
+                                        className="w-full h-full object-cover"
+                                        referrerPolicy="no-referrer"
+                                      />
+                                      <div className="absolute top-1 left-1 bg-black/80 text-[#f6c374] text-[9px] font-bold px-1.5 py-0.5 rounded border border-[#f6c374]/30">
+                                        #{pIdx + 1}
+                                      </div>
+                                      <div className="absolute inset-x-0 bottom-0 bg-black/80 px-1.5 py-1">
+                                        <p className="text-[9px] text-[#eae1d8] font-semibold truncate">{getActTitle(p.activity_id)}</p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="flex justify-between text-[10px] text-[#9b8f7f] px-1">
+                                  <span>Total Tampil di Beranda: <strong className="text-[#eae1d8]">{previewPhotos.length} Foto</strong></span>
+                                  {selectedIds.length === 0 && (
+                                    <span className="text-[#f6c374]/80 italic">(Default: Foto terbaru)</span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="border-t border-[#4f4538]/10 pt-6 mt-8">

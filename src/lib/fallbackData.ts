@@ -127,6 +127,8 @@ export const fallbackData = {
     ],
     "enable_kegiatan_page": true,
     "enable_foto_terbaru_page": true,
+    "homepage_gallery_limit": 6,
+    "homepage_gallery_photo_ids": [],
     "slideshow_duration": 5,
     "slideshow_transition": "Fade",
     "slideshow_blur": 35,

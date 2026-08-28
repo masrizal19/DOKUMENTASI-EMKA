@@ -141,6 +141,8 @@ export default function App() {
           sections: raw.sections || [],
           enable_kegiatan_page: raw.enable_kegiatan_page ?? true,
           enable_foto_terbaru_page: raw.enable_foto_terbaru_page ?? true,
+          homepage_gallery_limit: typeof raw.homepage_gallery_limit === "number" ? raw.homepage_gallery_limit : 6,
+          homepage_gallery_photo_ids: Array.isArray(raw.homepage_gallery_photo_ids) ? raw.homepage_gallery_photo_ids : [],
           slideshow_duration: raw.slideshow_duration ?? 5,
           slideshow_transition: raw.slideshow_transition ?? "Fade",
           slideshow_blur: raw.slideshow_blur ?? 35,
@@ -409,6 +411,8 @@ export default function App() {
     hero_video: "",
     hero_source: "auto",
     sections: [],
+    homepage_gallery_limit: 6,
+    homepage_gallery_photo_ids: [],
     copyright_year: "2026",
     copyright_author: ""
   }) as Settings;
@@ -536,8 +540,28 @@ export default function App() {
 
                   case "galeri": {
                     const customLabel = section.custom_label || "Arsip Galeri";
-                    const limit = typeof section.item_limit === "number" ? section.item_limit : 9;
-                    const displayPhotos = photos.slice(0, limit);
+                    const limit = typeof activeSettings.homepage_gallery_limit === "number"
+                      ? activeSettings.homepage_gallery_limit
+                      : (typeof section.item_limit === "number" ? section.item_limit : 6);
+                    const safeLimit = Math.min(Math.max(limit, 1), 15);
+
+                    let displayPhotos: Photo[] = [];
+                    const selectedPhotoIds = activeSettings.homepage_gallery_photo_ids || [];
+
+                    if (selectedPhotoIds.length > 0) {
+                      selectedPhotoIds.forEach(pId => {
+                        const found = photos.find(p => p.id === pId);
+                        if (found && !displayPhotos.some(dp => dp.id === found.id)) {
+                          displayPhotos.push(found);
+                        }
+                      });
+                      displayPhotos = displayPhotos.slice(0, safeLimit);
+                    }
+
+                    // Fallback if no specific photos chosen yet
+                    if (displayPhotos.length === 0) {
+                      displayPhotos = photos.slice(0, safeLimit);
+                    }
 
                     return (
                       <section key={section.id} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 space-y-12">
@@ -562,7 +586,7 @@ export default function App() {
                           {displayPhotos.map((photo, pIdx) => (
                             <div
                               key={photo.id}
-                              onClick={() => openLightbox(photos, pIdx)}
+                              onClick={() => openLightbox(displayPhotos, pIdx)}
                               className="group relative aspect-[4/3] rounded-sm overflow-hidden border border-[#4f4538]/10 bg-[#110e09] cursor-pointer hover:border-[#f6c374]/30 transition-all duration-500 shadow-md"
                             >
                               <img

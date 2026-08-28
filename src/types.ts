@@ -97,6 +97,8 @@ export interface Settings {
   sections: SectionSetting[];
   enable_kegiatan_page?: boolean;
   enable_foto_terbaru_page?: boolean;
+  homepage_gallery_limit?: number;
+  homepage_gallery_photo_ids?: string[];
 
   // Slideshow Settings
   slideshow_duration?: number;
