@@ -88,6 +88,9 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
 
   const [isPhotoFormOpen, setIsPhotoFormOpen] = useState(false);
   const [editingPhoto, setEditingPhoto] = useState<Photo | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string>("");
+  const [photoAspectRatio, setPhotoAspectRatio] = useState<"landscape" | "portrait">("landscape");
   const [photoFormData, setPhotoFormData] = useState({
     activity_id: "",
     title: "",
@@ -306,11 +309,15 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
     const filePath = `${folder}/${year}/${uniqueId}-${safeName}`;
 
     // Debug session
-    const { data: { session } } = await supabase.auth.getSession();
+    let { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) {
+      const { data: refreshRes } = await supabase.auth.refreshSession();
+      session = refreshRes?.session || null;
+    }
     console.log('[SUPABASE SESSION]', session);
 
     console.log('[UPLOAD START]', {
-      bucket: 'gallery-media',
+      bucket: 'gallery',
       path: filePath,
       fileName: file.name,
       fileType: file.type,
@@ -319,7 +326,7 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
     });
 
     const { data, error } = await supabase.storage
-      .from('gallery-media')
+      .from('gallery')
       .upload(filePath, file, { 
         contentType: file.type,
         cacheControl: '3600', 
@@ -338,9 +345,9 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
       let userMessage = error.message;
 
       if (statusCode === 403 || error.message?.includes('row-level security') || error.message?.includes('Policy')) {
-        userMessage = "Masalah permission Storage (403 Unauthorized / RLS policy error). Pastikan policy Supabase Storage 'gallery-media' sudah diatur.";
+        userMessage = "Masalah permission Storage (403 Unauthorized / RLS policy error). Pastikan policy Supabase Storage 'gallery' sudah diatur.";
       } else if (statusCode === 404 || error.message?.includes('Bucket not found')) {
-        userMessage = "Bucket 'gallery-media' tidak ditemukan di Supabase Storage.";
+        userMessage = "Bucket 'gallery' tidak ditemukan di Supabase Storage. Pastikan nama bucket adalah 'gallery'.";
       } else if (statusCode === 409) {
         userMessage = "File sudah ada di penyimpanan.";
       } else if (statusCode === 413 || error.message?.includes('Entity Too Large')) {
@@ -359,7 +366,7 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
     console.log('[UPLOAD SUCCESS]', data);
 
     const { data: { publicUrl } } = supabase.storage
-      .from('gallery-media')
+      .from('gallery')
       .getPublicUrl(filePath);
 
     return publicUrl;
@@ -368,13 +375,14 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
   // Cleanup object URLs on unmount or change
   useEffect(() => {
     return () => {
-      if (coverPreview) URL.revokeObjectURL(coverPreview);
-      if (videoPreview) URL.revokeObjectURL(videoPreview);
+      if (coverPreview && coverPreview.startsWith("blob:")) URL.revokeObjectURL(coverPreview);
+      if (videoPreview && videoPreview.startsWith("blob:")) URL.revokeObjectURL(videoPreview);
+      if (photoPreview && photoPreview.startsWith("blob:")) URL.revokeObjectURL(photoPreview);
     };
-  }, [coverPreview, videoPreview]);
+  }, [coverPreview, videoPreview, photoPreview]);
 
-  // Handle File upload for Photo Tab
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetField: "photo_url") => {
+  // Handle Photo selection with immediate preview and ratio auto-detection
+  const handlePhotoFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -384,16 +392,24 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
       return;
     }
 
-    setUploadLoading(true);
-    try {
-      const publicUrl = await uploadFileToSupabase(file, 'images');
-      setPhotoFormData(prev => ({ ...prev, image_url: publicUrl }));
-      onShowToast("File berhasil diunggah ke Supabase Storage.", "success");
-    } catch (err: any) {
-      onShowToast(err.message || "Gagal memproses file.", "error");
-    } finally {
-      setUploadLoading(false);
+    if (photoPreview && photoPreview.startsWith("blob:")) {
+      URL.revokeObjectURL(photoPreview);
     }
+
+    const objectUrl = URL.createObjectURL(file);
+    setPhotoFile(file);
+    setPhotoPreview(objectUrl);
+
+    // Auto-detect image aspect ratio from dimensions
+    const img = new Image();
+    img.onload = () => {
+      if (img.naturalHeight > img.naturalWidth) {
+        setPhotoAspectRatio("portrait");
+      } else {
+        setPhotoAspectRatio("landscape");
+      }
+    };
+    img.src = objectUrl;
   };
 
   // Activity CRUD
@@ -643,11 +659,11 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
         background_video = fetchRow.background_video || background_video;
       }
 
-      // 4. Extract storage object paths for 'gallery-media' bucket (Requirement B & C)
+      // 4. Extract storage object paths for 'gallery' bucket (Requirement B & C)
       const pathsToRemove: string[] = [];
-      const coverPath = getStorageObjectPath(cover_image, 'gallery-media');
-      const bgImagePath = getStorageObjectPath(background_image, 'gallery-media');
-      const bgVideoPath = getStorageObjectPath(background_video, 'gallery-media');
+      const coverPath = getStorageObjectPath(cover_image, 'gallery');
+      const bgImagePath = getStorageObjectPath(background_image, 'gallery');
+      const bgVideoPath = getStorageObjectPath(background_video, 'gallery');
 
       if (coverPath) pathsToRemove.push(coverPath);
       if (bgImagePath) pathsToRemove.push(bgImagePath);
@@ -657,14 +673,9 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
 
       if (uniquePaths.length > 0) {
         console.log('[DELETE ACTIVITY] Removing storage files:', uniquePaths);
-        const { error: storageErr } = await supabase.storage
-          .from('gallery-media')
-          .remove(uniquePaths);
-
-        if (storageErr) {
-          console.warn('[DELETE ACTIVITY] Storage deletion warning:', storageErr);
-          // Storage removal warning shouldn't block database deletion
-        }
+        try {
+          await supabase.storage.from('gallery').remove(uniquePaths);
+        } catch (_) {}
       }
 
       // 5. Delete activity record from database via RPC admin_delete_activity
@@ -724,7 +735,13 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
 
   // Photo CRUD
   const handleOpenAddPhoto = () => {
+    if (photoPreview && photoPreview.startsWith("blob:")) {
+      URL.revokeObjectURL(photoPreview);
+    }
     setEditingPhoto(null);
+    setPhotoFile(null);
+    setPhotoPreview("");
+    setPhotoAspectRatio("landscape");
     setPhotoFormData({
       activity_id: selectedActivityForPhotos !== "all" ? selectedActivityForPhotos : (activities[0]?.id || ""),
       title: "",
@@ -735,7 +752,14 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
   };
 
   const handleOpenEditPhoto = (photo: Photo) => {
+    if (photoPreview && photoPreview.startsWith("blob:")) {
+      URL.revokeObjectURL(photoPreview);
+    }
     setEditingPhoto(photo);
+    setPhotoFile(null);
+    setPhotoPreview(photo.image_url);
+    const initialRatio = (photo.aspect_ratio === "portrait" || photo.aspect_ratio === "9:16") ? "portrait" : "landscape";
+    setPhotoAspectRatio(initialRatio);
     setPhotoFormData({
       activity_id: photo.activity_id,
       title: photo.title,
@@ -747,57 +771,188 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
 
   const handleSavePhoto = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!photoFormData.activity_id || !photoFormData.image_url) {
-      onShowToast("Pilih Kegiatan dan unggah/masukkan link foto.", "error");
+    if (!photoFormData.activity_id) {
+      onShowToast("Pilih Kegiatan terlebih dahulu.", "error");
       return;
     }
 
+    if (!photoFile && !photoFormData.image_url && !photoPreview) {
+      onShowToast("Silakan pilih berkas foto untuk diunggah.", "error");
+      return;
+    }
+
+    // Ensure active Supabase Auth session before upload & insert
+    let { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) {
+      const { data: refreshRes } = await supabase.auth.refreshSession();
+      session = refreshRes?.session || null;
+    }
+
+    if (!session || !session.user) {
+      onShowToast("Session admin tidak tersedia atau telah kedaluwarsa. Silakan login kembali.", "error");
+      return;
+    }
+
+    setUploadLoading(true);
     try {
-      const photoId = editingPhoto ? editingPhoto.id : `photo-${Date.now()}`;
-      const dbRow = {
-        id: photoId,
+      let finalImageUrl = photoFormData.image_url;
+
+      // If user selected a new file, upload to Supabase Storage bucket 'gallery'
+      if (photoFile) {
+        finalImageUrl = await uploadFileToSupabase(photoFile, 'images');
+      }
+
+      if (!finalImageUrl) {
+        throw new Error("URL Foto tidak valid.");
+      }
+
+      // Safe UUID generation
+      const generateUUID = () => {
+        if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+          return crypto.randomUUID();
+        }
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          const r = Math.random() * 16 | 0;
+          const v = c === 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+      };
+
+      const isEditing = !!editingPhoto;
+      const photoId = isEditing && isValidUUID(editingPhoto.id) ? editingPhoto.id : generateUUID();
+      
+      const baseDbRow: any = {
         activity_id: photoFormData.activity_id,
         type: "image",
-        url: photoFormData.image_url,
-        caption: photoFormData.title,
+        url: finalImageUrl,
+        caption: photoFormData.title || "",
         sort_order: photoFormData.sort_order || 0
       };
 
-      const { error } = await supabase
-        .from("activity_media")
-        .upsert(dbRow);
+      if (isEditing) {
+        // Authenticated UPDATE
+        const { error: updateErr } = await supabase
+          .from("activity_media")
+          .update({
+            ...baseDbRow,
+            aspect_ratio: photoAspectRatio
+          })
+          .eq("id", photoId);
 
-      if (error) {
-        onShowToast(error.message || "Gagal menyimpan foto.", "error");
-        return;
+        if (updateErr) {
+          // Fallback if aspect_ratio column is not in remote schema
+          const { error: fallbackUpdateErr } = await supabase
+            .from("activity_media")
+            .update(baseDbRow)
+            .eq("id", photoId);
+
+          if (fallbackUpdateErr) {
+            throw new Error(fallbackUpdateErr.message || "Gagal memperbarui foto di database.");
+          }
+        }
+      } else {
+        // Authenticated INSERT
+        const insertPayload = {
+          id: photoId,
+          ...baseDbRow,
+          aspect_ratio: photoAspectRatio
+        };
+
+        const { error: insertErr } = await supabase
+          .from("activity_media")
+          .insert(insertPayload);
+
+        if (insertErr) {
+          // Fallback if aspect_ratio column is not in remote schema
+          const { error: fallbackInsertErr } = await supabase
+            .from("activity_media")
+            .insert({
+              id: photoId,
+              ...baseDbRow
+            });
+
+          if (fallbackInsertErr) {
+            throw new Error(fallbackInsertErr.message || "Gagal menyimpan foto ke database.");
+          }
+        }
       }
 
-      // Also upsert to latest_photos table
-      const latestRow = {
+      // Also upsert to latest_photos table if available (non-blocking)
+      try {
+        const latestRow = {
+          id: photoId,
+          image_url: finalImageUrl,
+          caption: photoFormData.title || "",
+          activity_id: photoFormData.activity_id,
+          sort_order: photoFormData.sort_order || 0,
+          published: true
+        };
+        await supabase.from("latest_photos").upsert(latestRow);
+      } catch (_) {
+        // Silently ignore if latest_photos table is not active
+      }
+
+      // Instantly update local state
+      const updatedPhotoItem: Photo = {
         id: photoId,
-        image_url: photoFormData.image_url,
-        caption: photoFormData.title,
         activity_id: photoFormData.activity_id,
+        title: photoFormData.title || "",
+        image_url: finalImageUrl,
         sort_order: photoFormData.sort_order || 0,
-        published: true
+        aspect_ratio: photoAspectRatio,
+        created_at: editingPhoto ? editingPhoto.created_at : new Date().toISOString(),
+        updated_at: new Date().toISOString()
       };
-      await supabase.from("latest_photos").upsert(latestRow);
+
+      setPhotos(prev => {
+        const existingIdx = prev.findIndex(p => p.id === photoId);
+        if (existingIdx >= 0) {
+          const copy = [...prev];
+          copy[existingIdx] = updatedPhotoItem;
+          return copy;
+        }
+        return [...prev, updatedPhotoItem];
+      });
 
       onShowToast(
-        editingPhoto ? "Detail foto berhasil diperbarui." : "Foto berhasil ditambahkan.",
+        editingPhoto ? "Detail foto berhasil diperbarui." : "Foto berhasil diunggah dan disimpan ke kegiatan.",
         "success"
       );
+
+      if (photoPreview && photoPreview.startsWith("blob:")) {
+        URL.revokeObjectURL(photoPreview);
+      }
+      setPhotoFile(null);
+      setPhotoPreview("");
       setIsPhotoFormOpen(false);
+      if (onRefreshData) onRefreshData();
       fetchData();
-    } catch (err) {
-      onShowToast("Terjadi kesalahan koneksi.", "error");
+    } catch (err: any) {
+      console.error("[SAVE PHOTO ERROR]", err);
+      onShowToast(err.message || "Terjadi kesalahan saat memproses foto.", "error");
+    } finally {
+      setUploadLoading(false);
     }
   };
 
   const handleDeletePhoto = async (id: string) => {
     if (!window.confirm("Hapus foto ini?")) return;
 
+    // Ensure session
+    let { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) {
+      const { data: refreshRes } = await supabase.auth.refreshSession();
+      session = refreshRes?.session || null;
+    }
+
+    if (!session || !session.user) {
+      onShowToast("Session admin tidak tersedia. Silakan login kembali.", "error");
+      return;
+    }
+
     try {
+      const photoToDelete = photos.find(p => p.id === id);
+
       const { error } = await supabase
         .from("activity_media")
         .delete()
@@ -808,9 +963,22 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
         return;
       }
 
-      await supabase.from("latest_photos").delete().eq("id", id);
+      try {
+        await supabase.from("latest_photos").delete().eq("id", id);
+      } catch (_) {}
+
+      // Try removing from storage bucket 'gallery'
+      if (photoToDelete?.image_url) {
+        const storagePath = getStorageObjectPath(photoToDelete.image_url, 'gallery');
+        if (storagePath) {
+          try {
+            await supabase.storage.from('gallery').remove([storagePath]);
+          } catch (_) {}
+        }
+      }
 
       onShowToast("Foto berhasil dihapus.", "success");
+      if (onRefreshData) onRefreshData();
       fetchData();
     } catch (err) {
       onShowToast("Terjadi kesalahan koneksi.", "error");
@@ -819,6 +987,18 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
 
   // Reordering handler
   const handleMovePhoto = async (photo: Photo, direction: "up" | "down") => {
+    // Ensure session
+    let { data: { session } } = await supabase.auth.getSession();
+    if (!session || !session.user) {
+      const { data: refreshRes } = await supabase.auth.refreshSession();
+      session = refreshRes?.session || null;
+    }
+
+    if (!session || !session.user) {
+      onShowToast("Session admin tidak tersedia. Silakan login kembali.", "error");
+      return;
+    }
+
     const activityPhotos = photos.filter(p => p.activity_id === photo.activity_id).sort((a, b) => a.sort_order - b.sort_order);
     const index = activityPhotos.findIndex(p => p.id === photo.id);
 
@@ -840,13 +1020,16 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
           .update({ sort_order: order.sort_order })
           .eq("id", order.id);
 
-        await supabase
-          .from("latest_photos")
-          .update({ sort_order: order.sort_order })
-          .eq("id", order.id);
+        try {
+          await supabase
+            .from("latest_photos")
+            .update({ sort_order: order.sort_order })
+            .eq("id", order.id);
+        } catch (_) {}
       }
 
       onShowToast("Urutan foto berhasil diubah.", "success");
+      if (onRefreshData) onRefreshData();
       fetchData();
     } catch (err) {
       onShowToast("Gagal menyimpan perubahan urutan.", "error");
@@ -3293,22 +3476,30 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
 
       {/* --- FORM 2: ADD/EDIT PHOTO MODAL POPUP --- */}
       {isPhotoFormOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-[#17130e] border border-[#4f4538]/20 max-w-xl w-full rounded-sm p-6 sm:p-8 space-y-6 shadow-2xl">
-            <h3 className="font-display text-xl sm:text-2xl font-bold text-[#f6c374]">
-              {editingPhoto ? "Edit Detail Foto" : "Unggah/Tambah Foto Baru"}
-            </h3>
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-[#17130e] border border-[#4f4538]/30 max-w-xl w-full rounded-sm p-6 sm:p-8 space-y-6 shadow-2xl my-8">
+            <div className="border-b border-[#4f4538]/20 pb-3">
+              <h3 className="font-display text-xl sm:text-2xl font-bold text-[#f6c374]">
+                {editingPhoto ? "Edit Foto Kegiatan" : "Upload Foto Kegiatan"}
+              </h3>
+              <p className="font-body text-xs text-[#9b8f7f] mt-1">
+                Unggah foto langsung dari perangkat Anda ke Supabase Storage dan pilih rasio tampilan.
+              </p>
+            </div>
 
-            <form onSubmit={handleSavePhoto} className="space-y-4 font-body text-xs">
+            <form onSubmit={handleSavePhoto} className="space-y-5 font-body text-xs">
               
               {/* Activity select */}
               <div className="space-y-1.5">
-                <label className="font-subheading text-[10px] uppercase tracking-widest text-[#9b8f7f]">Pilih Kegiatan Utama</label>
+                <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] flex items-center gap-1.5 font-semibold">
+                  <span>Pilih Kegiatan Utama</span>
+                  <span className="text-[#f6c374]">*</span>
+                </label>
                 <select
                   required
                   value={photoFormData.activity_id}
                   onChange={(e) => setPhotoFormData(prev => ({ ...prev, activity_id: e.target.value }))}
-                  className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 focus:outline-none focus:border-[#f6c374]"
+                  className="w-full bg-[#110e09] border border-[#4f4538]/40 rounded py-2.5 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
                 >
                   <option value="" disabled>Pilih Kegiatan</option>
                   {activities.map(act => (
@@ -3319,57 +3510,159 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
 
               {/* Title info */}
               <div className="space-y-1.5">
-                <label className="font-subheading text-[10px] uppercase tracking-widest text-[#9b8f7f]">Judul Foto / Caption</label>
+                <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] font-semibold">
+                  Judul Foto / Caption (Opsional)
+                </label>
                 <input
                   type="text"
                   value={photoFormData.title}
                   onChange={(e) => setPhotoFormData(prev => ({ ...prev, title: e.target.value }))}
-                  placeholder="Contoh: Ekspresi Bahagia Siswa"
-                  className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 focus:outline-none focus:border-[#f6c374]"
+                  placeholder="Contoh: Momen Pembukaan Acara"
+                  className="w-full bg-[#110e09] border border-[#4f4538]/40 rounded py-2.5 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
                 />
               </div>
 
-              {/* Image upload options */}
-              <div className="space-y-2 border-t border-[#4f4538]/15 pt-4">
-                <span className="block font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8]">Unggah Foto</span>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Link Option */}
-                  <div className="space-y-1">
-                    <label className="text-[#9b8f7f] text-[10px]">Tautan Link Link Foto URL:</label>
-                    <input
-                      type="text"
-                      value={photoFormData.image_url}
-                      onChange={(e) => setPhotoFormData(prev => ({ ...prev, image_url: e.target.value }))}
-                      placeholder="https://example.com/photo.jpg"
-                      className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2 px-3 focus:outline-none focus:border-[#f6c374]"
-                    />
-                  </div>
+              {/* Photo Upload & Preview Section */}
+              <div className="space-y-3 border-t border-[#4f4538]/20 pt-4">
+                <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] flex items-center justify-between font-semibold">
+                  <span>Berkas Foto</span>
+                  <span className="text-[#9b8f7f] text-[9px] lowercase">format: jpg, png, webp (maks 100mb)</span>
+                </label>
 
-                  {/* File Upload Option */}
-                  <div className="space-y-1 flex flex-col justify-end">
-                    <label className="text-[#9b8f7f] text-[10px]">Atau Unggah Berkas Gambar:</label>
-                    <div className="relative w-full bg-[#110e09] border border-dashed border-[#4f4538]/40 hover:border-[#f6c374] rounded p-2 text-center transition-colors">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handleFileUpload(e, "photo_url")}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      />
-                      <div className="flex items-center justify-center gap-2 text-[#9b8f7f]">
-                        <Upload className="w-4 h-4 text-[#f6c374]" />
-                        <span>Pilih Gambar</span>
+                {!photoPreview ? (
+                  <div className="relative w-full bg-[#110e09] border-2 border-dashed border-[#4f4538]/40 hover:border-[#f6c374] rounded-md p-8 text-center transition-all cursor-pointer group">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePhotoFileSelect}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    />
+                    <div className="flex flex-col items-center justify-center gap-3 pointer-events-none">
+                      <div className="w-12 h-12 rounded-full bg-[#17130e] border border-[#4f4538]/30 flex items-center justify-center text-[#f6c374] group-hover:scale-110 transition-transform">
+                        <Upload className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="font-subheading text-xs tracking-wider uppercase text-[#eae1d8] block font-semibold">
+                          Pilih / Unggah Foto
+                        </span>
+                        <span className="text-[11px] text-[#9b8f7f] block">
+                          Klik untuk memilih berkas dari komputer Anda
+                        </span>
                       </div>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="space-y-4 bg-[#110e09] border border-[#4f4538]/30 rounded-md p-4">
+                    
+                    {/* Ratio Switcher (16:9 vs 9:16) */}
+                    <div className="space-y-2">
+                      <span className="font-subheading text-[10px] uppercase tracking-widest text-[#9b8f7f] block">
+                        Pilih Rasio Tampilan Foto:
+                      </span>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPhotoAspectRatio("landscape")}
+                          className={`py-2 px-3 rounded text-xs font-subheading uppercase tracking-wider flex items-center justify-center gap-2 border transition-all cursor-pointer ${
+                            photoAspectRatio === "landscape"
+                              ? "bg-[#d8a85c] text-[#110e09] font-bold border-[#d8a85c] shadow"
+                              : "bg-[#17130e] text-[#d3c4b3] border-[#4f4538]/40 hover:border-[#f6c374]/60"
+                          }`}
+                        >
+                          <span className="text-sm">🖥️</span>
+                          <span>Landscape (16:9)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPhotoAspectRatio("portrait")}
+                          className={`py-2 px-3 rounded text-xs font-subheading uppercase tracking-wider flex items-center justify-center gap-2 border transition-all cursor-pointer ${
+                            photoAspectRatio === "portrait"
+                              ? "bg-[#d8a85c] text-[#110e09] font-bold border-[#d8a85c] shadow"
+                              : "bg-[#17130e] text-[#d3c4b3] border-[#4f4538]/40 hover:border-[#f6c374]/60"
+                          }`}
+                        >
+                          <span className="text-sm">📱</span>
+                          <span>Portrait (9:16)</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Dynamic Ratio Preview Box */}
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex justify-between items-center text-[10px] text-[#9b8f7f]">
+                        <span>Pratinjau Foto ({photoAspectRatio === "landscape" ? "16:9 Landscape" : "9:16 Portrait"}):</span>
+                      </div>
+                      
+                      <div className="bg-[#0c0a07] border border-[#4f4538]/30 rounded overflow-hidden flex items-center justify-center p-2">
+                        <div
+                          className={`relative overflow-hidden rounded shadow-lg transition-all duration-300 ${
+                            photoAspectRatio === "landscape"
+                              ? "w-full max-w-md aspect-video"
+                              : "max-h-[340px] w-auto aspect-[9/16]"
+                          }`}
+                        >
+                          <img
+                            src={photoPreview}
+                            alt="Preview"
+                            className="w-full h-full object-cover object-center"
+                            referrerPolicy="no-referrer"
+                          />
+                          <span className="absolute bottom-2 right-2 bg-black/75 backdrop-blur-sm border border-white/10 text-[9px] font-subheading uppercase tracking-wider px-2 py-0.5 rounded text-[#f6c374]">
+                            {photoAspectRatio === "landscape" ? "16:9" : "9:16"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Actions under preview */}
+                    <div className="flex items-center justify-between pt-1">
+                      <div className="relative">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handlePhotoFileSelect}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        />
+                        <button
+                          type="button"
+                          className="bg-[#17130e] hover:bg-[#3e3832]/30 border border-[#4f4538]/40 text-[#eae1d8] font-subheading text-[10px] uppercase tracking-wider py-1.5 px-3 rounded flex items-center gap-1.5 cursor-pointer pointer-events-none"
+                        >
+                          <Upload className="w-3.5 h-3.5 text-[#f6c374]" /> Ganti Foto
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (photoPreview && photoPreview.startsWith("blob:")) {
+                            URL.revokeObjectURL(photoPreview);
+                          }
+                          setPhotoFile(null);
+                          setPhotoPreview("");
+                          setPhotoFormData(prev => ({ ...prev, image_url: "" }));
+                        }}
+                        className="text-red-400 hover:text-red-300 font-subheading text-[10px] uppercase tracking-wider py-1.5 px-2 cursor-pointer transition-colors"
+                      >
+                        Hapus Pilihan
+                      </button>
+                    </div>
+
+                  </div>
+                )}
               </div>
 
               {/* Form trigger buttons */}
               <div className="border-t border-[#4f4538]/15 pt-6 flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setIsPhotoFormOpen(false)}
+                  onClick={() => {
+                    if (photoPreview && photoPreview.startsWith("blob:")) {
+                      URL.revokeObjectURL(photoPreview);
+                    }
+                    setPhotoFile(null);
+                    setPhotoPreview("");
+                    setIsPhotoFormOpen(false);
+                  }}
                   className="border border-[#4f4538]/30 hover:bg-[#3e3832]/20 text-[#eae1d8] font-subheading uppercase text-[10px] tracking-widest py-3 px-6 rounded transition-colors cursor-pointer"
                 >
                   Batal
@@ -3381,7 +3674,7 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
                 >
                   {uploadLoading ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" /> Sedang Mengunggah
+                      <Loader2 className="w-4 h-4 animate-spin" /> Sedang Mengunggah & Menyimpan...
                     </>
                   ) : (
                     "Simpan Foto"

@@ -64,7 +64,29 @@ export default function FotoTerbaruPage({
   const filteredPhotos = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
 
-    const validPhotos = photos.filter((photo) => {
+    // Pool all photo items from photos table
+    const photoPool: Photo[] = [...photos];
+
+    // Also ensure each published activity's cover_image is included if not already present
+    const existingUrls = new Set(photos.map((p) => p.image_url));
+    activities
+      .filter((act) => act.status === "published" && act.cover_image)
+      .forEach((act) => {
+        if (!existingUrls.has(act.cover_image)) {
+          photoPool.push({
+            id: `act-cover-${act.id}`,
+            activity_id: act.id,
+            title: act.title,
+            image_url: act.cover_image,
+            sort_order: 0,
+            is_cover: true,
+            created_at: act.date || act.created_at || new Date().toISOString(),
+            updated_at: act.updated_at || new Date().toISOString(),
+          });
+        }
+      });
+
+    const validPhotos = photoPool.filter((photo) => {
       const act = activityMap.get(photo.activity_id);
       if (!act || act.status !== "published") return false;
 
@@ -90,15 +112,27 @@ export default function FotoTerbaruPage({
       }
 
       return true;
+    }).map((photo) => {
+      const act = activityMap.get(photo.activity_id);
+      const isCover = photo.is_cover || (act ? act.cover_image === photo.image_url : false);
+      return {
+        ...photo,
+        is_cover: isCover,
+      };
     });
 
-    // Sort by created_at descending (newest first)
+    // Prioritize best/cover photos, then sort by created_at descending (newest first)
     return validPhotos.sort((a, b) => {
+      const aScore = (a.is_cover ? 10 : 0) + (a.is_featured ? 5 : 0);
+      const bScore = (b.is_cover ? 10 : 0) + (b.is_featured ? 5 : 0);
+      if (bScore !== aScore) {
+        return bScore - aScore;
+      }
       const dateA = new Date(a.created_at).getTime();
       const dateB = new Date(b.created_at).getTime();
       return dateB - dateA;
     });
-  }, [photos, activityMap, selectedCategory, selectedYear, searchQuery]);
+  }, [photos, activities, activityMap, selectedCategory, selectedYear, searchQuery]);
 
   const isFiltered = searchQuery !== "" || selectedYear !== "Semua" || selectedCategory !== "Semua";
 

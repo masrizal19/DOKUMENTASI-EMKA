@@ -101,7 +101,29 @@ export default function GaleriFoto({
   const filteredPhotos = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
 
-    const validPhotos = photos
+    // Pool all photo items from photos table
+    const photoPool: Photo[] = [...photos];
+
+    // Also ensure each published activity's cover_image is included if not already present
+    const existingUrls = new Set(photos.map((p) => p.image_url));
+    activities
+      .filter((act) => act.status === "published" && act.cover_image)
+      .forEach((act) => {
+        if (!existingUrls.has(act.cover_image)) {
+          photoPool.push({
+            id: `act-cover-${act.id}`,
+            activity_id: act.id,
+            title: act.title,
+            image_url: act.cover_image,
+            sort_order: 0,
+            is_cover: true,
+            created_at: act.date || act.created_at || new Date().toISOString(),
+            updated_at: act.updated_at || new Date().toISOString(),
+          });
+        }
+      });
+
+    const validPhotos = photoPool
       .filter((photo) => {
         const act = actMap.get(photo.activity_id);
         if (!act || act.status !== "published") return false;
@@ -132,18 +154,29 @@ export default function GaleriFoto({
 
         return true;
       })
-      .map((photo) => ({
-        ...photo,
-        activity: actMap.get(photo.activity_id),
-      }));
+      .map((photo) => {
+        const act = actMap.get(photo.activity_id);
+        const isCover = photo.is_cover || (act ? act.cover_image === photo.image_url : false);
+        return {
+          ...photo,
+          is_cover: isCover,
+          activity: act,
+        };
+      });
 
-    // Sort by created_at desc
+    // Prioritize best/cover/featured photos, then sort by date desc
     return validPhotos.sort((a, b) => {
+      // If one is cover and the other is not, cover comes first within same activity or globally
+      const aScore = (a.is_cover ? 10 : 0) + (a.is_featured ? 5 : 0);
+      const bScore = (b.is_cover ? 10 : 0) + (b.is_featured ? 5 : 0);
+      if (bScore !== aScore) {
+        return bScore - aScore;
+      }
       const dateA = new Date(a.created_at).getTime();
       const dateB = new Date(b.created_at).getTime();
       return dateB - dateA;
     });
-  }, [photos, actMap, selectedCategory, selectedYear, searchQuery]);
+  }, [photos, activities, actMap, selectedCategory, selectedYear, searchQuery]);
 
   const currentCount = subTab === "kegiatan" ? filteredActivities.length : filteredPhotos.length;
   const isFiltered = searchQuery !== "" || selectedYear !== "Semua" || selectedCategory !== "Semua";

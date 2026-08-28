@@ -22,6 +22,9 @@ export interface Photo {
   title: string;
   image_url: string;
   sort_order: number;
+  aspect_ratio?: 'landscape' | 'portrait' | '16:9' | '9:16' | string;
+  is_cover?: boolean;
+  is_featured?: boolean;
   created_at: string;
   updated_at: string;
 }

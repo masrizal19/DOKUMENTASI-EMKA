@@ -27,13 +27,11 @@ export default function TopNavBar({ activeTab, onChangeTab, settings, isAdminLog
     window.open(`https://wa.me/${cleanNumber}`, "_blank", "noopener,noreferrer");
   };
 
-  const isKegiatanPageEnabled = settings.enable_kegiatan_page !== false;
   const isFotoTerbaruPageEnabled = settings.enable_foto_terbaru_page !== false;
 
   const navItems = [
     { id: "beranda", label: "Beranda" },
     { id: "galeri", label: "Galeri" },
-    ...(isKegiatanPageEnabled ? [{ id: "kegiatan", label: "Kegiatan" } as const] : []),
     ...(isFotoTerbaruPageEnabled ? [{ id: "foto-terbaru", label: "Foto Terbaru" } as const] : []),
     { id: "tentang", label: "Tentang" }
   ];

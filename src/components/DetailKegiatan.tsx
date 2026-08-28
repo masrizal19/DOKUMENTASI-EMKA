@@ -207,78 +207,44 @@ export default function DetailKegiatan({
         </div>
 
         {/* Photos Grid */}
-        {sortedPhotos.length === 0 ? (
+        {sortedPhotos.length === 0 && !activity.cover_image ? (
           <div className="text-center py-24 text-[#d3c4b3] font-body text-sm bg-[#110e09] border border-[#4f4538]/10 rounded-sm">
             Belum ada foto ditambahkan untuk kegiatan ini.
           </div>
         ) : (
           <div className="masonry-grid">
-            {sortedPhotos.map((photo, index) => (
+            {(sortedPhotos.length > 0
+              ? sortedPhotos
+              : [
+                  {
+                    id: `cover-${activity.id}`,
+                    activity_id: activity.id,
+                    title: activity.title,
+                    image_url: activity.cover_image,
+                    sort_order: 0,
+                    created_at: activity.created_at || new Date().toISOString(),
+                    updated_at: activity.updated_at || new Date().toISOString(),
+                  },
+                ]
+            ).map((photo, index, arr) => (
               <div
                 key={photo.id}
-                onClick={() => onOpenLightbox(sortedPhotos, index)}
+                onClick={() => onOpenLightbox(arr, index)}
                 className="masonry-item group relative overflow-hidden rounded-sm cursor-pointer border border-[#4f4538]/10 hover:border-[#f6c374]/30 transition-cinematic bg-[#110e09]"
               >
                 <img
                   src={photo.image_url}
-                  alt={photo.title}
+                  alt={photo.title || activity.title}
                   className="w-full h-auto object-cover transform transition-transform duration-700 group-hover:scale-105"
                   referrerPolicy="no-referrer"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#110e09]/95 via-[#110e09]/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex flex-col justify-end p-6">
                   <p className="font-subheading text-[14px] text-[#eae1d8] transform translate-y-4 group-hover:translate-y-0 transition-transform duration-500 font-semibold leading-snug">
-                    {photo.title || "Foto Kegiatan"}
+                    {photo.title || activity.title}
                   </p>
                 </div>
               </div>
             ))}
-          </div>
-        )}
-
-        {/* Sequential Navigation between Kegiatan */}
-        {(prevActivity || nextActivity) && (
-          <div className="border-t border-[#4f4538]/25 pt-12 flex flex-col sm:flex-row justify-between items-center gap-6">
-            {prevActivity ? (
-              <button
-                onClick={() => onNavigateActivity(prevActivity.slug)}
-                className="flex items-center gap-3 group text-left max-w-xs cursor-pointer focus:outline-none"
-              >
-                <div className="w-10 h-10 rounded-full border border-[#4f4538]/45 flex items-center justify-center text-[#eae1d8] group-hover:border-[#f6c374] group-hover:text-[#f6c374] transition-all">
-                  <ArrowLeft className="w-4 h-4" />
-                </div>
-                <div>
-                  <span className="font-subheading text-[10px] tracking-widest text-[#9b8f7f] uppercase block">
-                    Sebelumnya
-                  </span>
-                  <span className="font-display text-sm font-bold text-[#eae1d8] group-hover:text-[#f6c374] transition-colors line-clamp-1">
-                    {prevActivity.title}
-                  </span>
-                </div>
-              </button>
-            ) : (
-              <div className="hidden sm:block" />
-            )}
-
-            {nextActivity ? (
-              <button
-                onClick={() => onNavigateActivity(nextActivity.slug)}
-                className="flex items-center gap-3 group text-right max-w-xs cursor-pointer focus:outline-none"
-              >
-                <div className="text-right">
-                  <span className="font-subheading text-[10px] tracking-widest text-[#9b8f7f] uppercase block">
-                    Berikutnya
-                  </span>
-                  <span className="font-display text-sm font-bold text-[#eae1d8] group-hover:text-[#f6c374] transition-colors line-clamp-1">
-                    {nextActivity.title}
-                  </span>
-                </div>
-                <div className="w-10 h-10 rounded-full border border-[#4f4538]/45 flex items-center justify-center text-[#eae1d8] group-hover:border-[#f6c374] group-hover:text-[#f6c374] transition-all">
-                  <ArrowRight className="w-4 h-4" />
-                </div>
-              </button>
-            ) : (
-              <div className="hidden sm:block" />
-            )}
           </div>
         )}
       </main>
