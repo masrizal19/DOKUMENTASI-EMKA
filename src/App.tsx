@@ -188,28 +188,26 @@ export default function App() {
         }));
       }
 
-      // 3. Fetch photos/media with timeout
-      const photosPromise = supabase
-        .from("activity_media")
-        .select("id, activity_id, caption, url, sort_order, created_at")
-        .order("sort_order", { ascending: true });
+      // 3. Fetch photos/media from PHP API with timeout
+      const apiUrl = (import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id";
+      const photosPromise = fetch(`${apiUrl}/api/photos.php`).then(res => res.json());
 
       const photosResult = await fetchWithTimeout(photosPromise, 8000);
 
-      if (photosResult?.error) {
+      if (!photosResult?.success && photosResult?.error) {
         console.error("PUBLIC PHOTOS FETCH ERROR", photosResult.error);
       }
 
       let mappedPhotos: Photo[] = [];
-      if (photosResult && photosResult.data && !photosResult.error) {
+      if (photosResult && photosResult.success && photosResult.data) {
         mappedPhotos = (photosResult.data as any[]).map(row => ({
           id: row.id,
-          activity_id: row.activity_id,
-          title: row.caption || "",
-          image_url: row.url,
-          sort_order: row.sort_order || 0,
+          activity_id: row.category_id, // Map PHP category_id to activity_id
+          title: row.title || row.description || "",
+          image_url: row.image_url,
+          sort_order: parseInt(row.display_order) || 0,
           created_at: row.created_at,
-          updated_at: row.created_at
+          updated_at: row.updated_at
         }));
       }
 
@@ -218,7 +216,8 @@ export default function App() {
         setActivities(mappedActivities);
         sessionStorage.setItem("emka_cached_activities", JSON.stringify(mappedActivities));
       }
-      if (photosResult && photosResult.data && !photosResult.error && Array.isArray(photosResult.data)) {
+
+      if (photosResult && photosResult.success && Array.isArray(photosResult.data)) {
         setPhotos(mappedPhotos);
         sessionStorage.setItem("emka_cached_photos", JSON.stringify(mappedPhotos));
       }

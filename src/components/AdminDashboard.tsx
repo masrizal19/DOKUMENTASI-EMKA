@@ -239,22 +239,21 @@ export default function AdminDashboard({ token, onLogout, onShowToast, onRefresh
         }));
       }
 
-      // Fetch photos/media
-      const { data: mediaData } = await supabase
-        .from("activity_media")
-        .select("*")
-        .order("sort_order", { ascending: true });
+      // Fetch photos/media from PHP API
+      const apiUrl = (import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id";
+      const photosRes = await fetch(`${apiUrl}/api/photos.php`).catch(() => null);
+      const photosData = photosRes ? await photosRes.json().catch(() => null) : null;
 
       let mappedPhotos: Photo[] = [];
-      if (mediaData && mediaData.length > 0) {
-        mappedPhotos = mediaData.map(row => ({
+      if (photosData && photosData.success && photosData.data) {
+        mappedPhotos = (photosData.data as any[]).map((row: any) => ({
           id: row.id,
-          activity_id: row.activity_id,
-          title: row.caption || "",
-          image_url: row.url,
-          sort_order: row.sort_order || 0,
+          activity_id: row.category_id,
+          title: row.title || row.description || "",
+          image_url: row.image_url,
+          sort_order: parseInt(row.display_order) || 0,
           created_at: row.created_at,
-          updated_at: row.created_at
+          updated_at: row.updated_at
         }));
       }
 
