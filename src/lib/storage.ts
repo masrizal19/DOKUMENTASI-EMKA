@@ -72,17 +72,22 @@ export function resolveImageUrl(url: string | null | undefined): string | undefi
 
   // 1. If it's already an absolute URL, USE IT DIRECTLY.
   if (trimmed.toLowerCase().startsWith('http://') || trimmed.toLowerCase().startsWith('https://')) {
+    console.log("[IMAGE DEBUG] Absolute URL (pass-through):", trimmed);
     return trimmed;
   }
 
   // 2. Handle paths starting with /uploads/ or uploads/
   const cleanUrl = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
   if (cleanUrl.startsWith('/uploads/')) {
-    return `https://galeri.mkverse.my.id${cleanUrl}`;
+    const resolved = `https://galeri.mkverse.my.id${cleanUrl}`;
+    console.log("[IMAGE DEBUG] Resolved from uploads path:", { original: trimmed, resolved });
+    return resolved;
   }
   
   // 3. Fallback for filenames to /uploads/
-  return `https://galeri.mkverse.my.id/uploads/${trimmed}`;
+  const resolved = `https://galeri.mkverse.my.id/uploads/${trimmed}`;
+  console.log("[IMAGE DEBUG] Resolved from filename:", { original: trimmed, resolved });
+  return resolved;
 }
 
 export function isValidUUID(id: string | null | undefined): boolean {
