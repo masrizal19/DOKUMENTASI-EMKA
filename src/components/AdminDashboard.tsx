@@ -103,8 +103,7 @@ const supabase = {
         console.log(`[API CALL] DELETE categories.php?id=${payload.p_id}`);
         const res = await fetch(`${API_BASE_URL}/categories.php?id=${payload.p_id}`, {
           method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: payload.p_id }) // Send both for compatibility
+          headers: { "Content-Type": "application/json" }
         });
         const result = await res.json();
         console.log(`[API RESPONSE] categories.php`, result);
