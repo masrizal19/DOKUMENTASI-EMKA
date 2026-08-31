@@ -38,6 +38,33 @@ interface AdminDashboardProps {
 
 const API_BASE_URL = `${(import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id"}/api`;
 
+/**
+ * Normalizes image URLs. If the URL is relative, it prepends the VITE_API_URL.
+ * This ensures images from the PHP backend are loaded correctly on different domains.
+ */
+const resolveImageUrl = (url: string | null | undefined): string | undefined => {
+  if (!url || typeof url !== 'string') return undefined;
+  const trimmed = url.trim();
+  if (!trimmed) return undefined;
+
+  // If it's already an absolute URL or a special protocol, return as is
+  if (
+    trimmed.startsWith('http://') || 
+    trimmed.startsWith('https://') || 
+    trimmed.startsWith('blob:') || 
+    trimmed.startsWith('data:')
+  ) {
+    return trimmed;
+  }
+
+  // It's a relative path from the PHP server
+  const baseUrl = (import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id";
+  const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  const cleanUrl = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  
+  return `${cleanBase}${cleanUrl}`;
+};
+
 
 const supabase = {
   auth: {
@@ -1751,13 +1778,16 @@ export default function AdminDashboard({
                         >
                           <td className="py-3 pr-4">
                             <img
-                              src={act.cover_image || undefined}
+                              src={resolveImageUrl(act.cover_image)}
                               alt="Cover"
                               className="w-12 h-8 object-cover rounded-sm border border-[#4f4538]/20"
                               referrerPolicy="no-referrer"
             onError={(e) => {
-              console.error("Image failed to load in AdminDashboard.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              const target = e.target as HTMLImageElement;
+              if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                console.error("Image failed to load in AdminDashboard (Activities Table):", act.cover_image);
+                target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              }
             }}
           />
                           </td>
@@ -1846,13 +1876,16 @@ export default function AdminDashboard({
                         >
                           <td className="py-4 px-6">
                             <img
-                              src={act.cover_image || undefined}
+                              src={resolveImageUrl(act.cover_image)}
                               alt="Cover"
                               className="w-16 h-10 object-cover rounded-sm border border-[#4f4538]/20"
                               referrerPolicy="no-referrer"
             onError={(e) => {
-              console.error("Image failed to load in AdminDashboard.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              const target = e.target as HTMLImageElement;
+              if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                console.error("Image failed to load in AdminDashboard (Main List):", act.cover_image);
+                target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              }
             }}
           />
                           </td>
@@ -1977,13 +2010,16 @@ export default function AdminDashboard({
                     {/* Thumbnail */}
                     <div className="aspect-[4/3] w-full overflow-hidden relative">
                       <img
-                        src={photo.image_url || undefined}
+                        src={resolveImageUrl(photo.image_url)}
                         alt="Photo"
                         className="w-full h-full object-cover"
                         referrerPolicy="no-referrer"
             onError={(e) => {
-              console.error("Image failed to load in AdminDashboard.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              const target = e.target as HTMLImageElement;
+              if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                console.error("Image failed to load in AdminDashboard (Photo Grid):", photo.image_url);
+                target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              }
             }}
           />
 
@@ -3516,13 +3552,16 @@ export default function AdminDashboard({
                                     >
                                       <div className="aspect-square relative bg-black">
                                         <img
-                                          src={photo.image_url || undefined}
+                                          src={resolveImageUrl(photo.image_url)}
                                           alt={photo.title || ""}
                                           className="w-full h-full object-cover"
                                           referrerPolicy="no-referrer"
             onError={(e) => {
-              console.error("Image failed to load in AdminDashboard.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              const target = e.target as HTMLImageElement;
+              if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                console.error("Image failed to load in AdminDashboard (Gallery Selector):", photo.image_url);
+                target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              }
             }}
           />
 
@@ -3765,13 +3804,16 @@ export default function AdminDashboard({
                                       className="group relative aspect-[4/3] rounded-sm overflow-hidden border border-[#4f4538]/20 bg-[#110e09]"
                                     >
                                       <img
-                                        src={p.image_url || undefined}
+                                        src={resolveImageUrl(p.image_url)}
                                         alt={p.title || ""}
                                         className="w-full h-full object-cover"
                                         referrerPolicy="no-referrer"
             onError={(e) => {
-              console.error("Image failed to load in AdminDashboard.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              const target = e.target as HTMLImageElement;
+              if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                console.error("Image failed to load in AdminDashboard (Homepage Preview):", p.image_url);
+                target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              }
             }}
           />
                                       <div className="absolute top-1 left-1 bg-black/80 text-[#f6c374] text-[9px] font-bold px-1.5 py-0.5 rounded border border-[#f6c374]/30">
@@ -4368,32 +4410,38 @@ export default function AdminDashboard({
                                 {/* Blurred Background preview */}
                                 <img
                                   key={`prev-bg-${currentSlide?.id || "default"}`}
-                                  src={previewCover || undefined}
+                                  src={resolveImageUrl(previewCover)}
                                   alt="preview background"
                                   className="absolute inset-0 w-full h-full object-cover transition-all duration-700 transform scale-105"
                                   style={{
                                     filter: `brightness(0.35) blur(${((settingsFormData.slideshow_blur ?? 35) / 100) * 12}px)`,
                                   }}
                                   referrerPolicy="no-referrer"
-            onError={(e) => {
-              console.error("Image failed to load in AdminDashboard.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
-            }}
-          />
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                                      console.error("Slideshow preview background failed to load:", previewCover);
+                                      target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+                                    }
+                                  }}
+                                />
 
                                 {/* Foreground Mock Card */}
                                 <div className="relative z-10 flex flex-col items-center justify-center flex-1 my-auto">
                                   <div className="w-32 h-20 rounded-md overflow-hidden border border-white/20 shadow-2xl relative">
                                     <img
-                                      src={previewCover || undefined}
+                                      src={resolveImageUrl(previewCover)}
                                       alt="mock card"
                                       className="w-full h-full object-cover"
                                       referrerPolicy="no-referrer"
-            onError={(e) => {
-              console.error("Image failed to load in AdminDashboard.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
-            }}
-          />
+                                      onError={(e) => {
+                                        const target = e.target as HTMLImageElement;
+                                        if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                                          console.error("Slideshow mock card failed to load:", previewCover);
+                                          target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+                                        }
+                                      }}
+                                    />
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
                                     <span className="absolute bottom-1 left-1.5 text-[7px] text-[#f6c374] font-bold uppercase truncate max-w-[90%]">
                                       {currentSlide?.category || "DOKUMENTASI"}
@@ -4710,15 +4758,18 @@ export default function AdminDashboard({
                       <div className="flex items-start gap-4">
                         <div className="relative aspect-[4/5] w-28 overflow-hidden rounded border border-[#4f4538]/30 bg-black shrink-0">
                           <img
-                            src={coverPreview || existingCoverUrl || undefined}
+                            src={resolveImageUrl(coverPreview || existingCoverUrl)}
                             alt="Cover Preview"
                             className="w-full h-full object-cover"
                             referrerPolicy="no-referrer"
-            onError={(e) => {
-              console.error("Image failed to load in AdminDashboard.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
-            }}
-          />
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                                console.error("Activity cover preview failed to load:", coverPreview || existingCoverUrl);
+                                target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+                              }
+                            }}
+                          />
                         </div>
                         <div className="flex-1 min-w-0 space-y-1.5 py-1">
                           <div className="flex items-center gap-2">
@@ -5267,15 +5318,18 @@ export default function AdminDashboard({
                           }`}
                         >
                           <img
-                            src={photoPreview || undefined}
+                            src={resolveImageUrl(photoPreview)}
                             alt="Preview"
                             className="w-full h-full object-cover object-center"
                             referrerPolicy="no-referrer"
-            onError={(e) => {
-              console.error("Image failed to load in AdminDashboard.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
-            }}
-          />
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                                console.error("Photo preview failed to load:", photoPreview);
+                                target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+                              }
+                            }}
+                          />
                           <span className="absolute bottom-2 right-2 bg-black/75 backdrop-blur-sm border border-white/10 text-[9px] font-subheading uppercase tracking-wider px-2 py-0.5 rounded text-[#f6c374]">
                             {photoAspectRatio === "landscape" ? "16:9" : "9:16"}
                           </span>
@@ -5456,16 +5510,19 @@ function AdminSlideshowPreview({
     <div className="relative aspect-[16/9] w-full max-h-[260px] overflow-hidden rounded border border-[#4f4538]/30 bg-[#110e09] flex items-center justify-center">
       <div className="absolute inset-0">
         <img
-          src={currentAct?.cover_image || "" || undefined}
+          src={resolveImageUrl(currentAct?.cover_image)}
           alt=""
           className="w-full h-full object-cover filter brightness-[0.25]"
           style={{ filter: `brightness(0.25) blur(${blurPx}px)` }}
           referrerPolicy="no-referrer"
-            onError={(e) => {
-              console.error("Image failed to load in AdminDashboard.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
-            }}
-          />
+          onError={(e) => {
+            const target = e.target as HTMLImageElement;
+            if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+              console.error("Slideshow simulation image failed to load:", currentAct?.cover_image);
+              target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+            }
+          }}
+        />
         <div className="absolute inset-0 bg-black/50" />
       </div>
 

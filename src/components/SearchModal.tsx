@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Activity, Photo } from "../types.js";
+import { resolveImageUrl } from "../lib/storage.js";
 import { motion, AnimatePresence } from "motion/react";
 import { Search, X, Calendar, Tag, Image as ImageIcon, Grid, ArrowRight, Eye } from "lucide-react";
 
@@ -363,13 +364,16 @@ export default function SearchModal({
                         >
                           <div className="w-20 h-20 shrink-0 rounded-sm overflow-hidden relative bg-black">
                             <img
-                              src={act.cover_image || undefined}
+                              src={resolveImageUrl(act.cover_image)}
                               alt={act.title}
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                               referrerPolicy="no-referrer"
             onError={(e) => {
-              console.error("Image failed to load in SearchModal.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              const target = e.target as HTMLImageElement;
+              if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                console.error("Cover image failed to load in SearchModal:", act.cover_image);
+                target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              }
             }}
           />
                           </div>
@@ -414,13 +418,16 @@ export default function SearchModal({
                             className="group relative aspect-square rounded-sm overflow-hidden border border-[#4f4538]/20 bg-[#110e09] cursor-pointer hover:border-[#f6c374]/50 transition-all"
                           >
                             <img
-                              src={photo.image_url || undefined}
+                              src={resolveImageUrl(photo.image_url)}
                               alt={photo.title || ""}
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                               referrerPolicy="no-referrer"
             onError={(e) => {
-              console.error("Image failed to load in SearchModal.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              const target = e.target as HTMLImageElement;
+              if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                console.error("Photo image failed to load in SearchModal:", photo.image_url);
+                target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              }
             }}
           />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-2.5 flex flex-col justify-end">

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Activity, Settings } from "../types.js";
+import { resolveImageUrl } from "../lib/storage.js";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowLeft, ArrowRight, Eye, FolderOpen } from "lucide-react";
 
@@ -317,14 +318,17 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
             >
               {/* Cover Image fallback */}
               <img
-                src={act.cover_image || undefined}
+                src={resolveImageUrl(act.cover_image)}
                 alt=""
                 className="w-full h-full object-cover filter brightness-[0.22] transform scale-[1.08]"
                 style={{ filter: `brightness(0.22) blur(${blurPx}px)` }}
                 referrerPolicy="no-referrer"
             onError={(e) => {
-              console.error("Image failed to load in HeroCarousel.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              const target = e.target as HTMLImageElement;
+              if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                console.error("Image failed to load in HeroCarousel (Background):", act.cover_image);
+                target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              }
             }}
           />
 
@@ -446,15 +450,18 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
                 >
                   {/* Photo Layer */}
                   <img
-                    src={act.cover_image || undefined}
+                    src={resolveImageUrl(act.cover_image)}
                     alt={act.title}
                     className="w-full h-full object-cover select-none pointer-events-none group-hover:scale-105 transition-transform duration-700"
                     referrerPolicy="no-referrer"
-            onError={(e) => {
-              console.error("Image failed to load in HeroCarousel.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
-            }}
-          />
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                        console.error("Image failed to load in HeroCarousel (Foreground):", act.cover_image);
+                        target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+                      }
+                    }}
+                  />
 
                   {/* Glass Card Tint Overlay */}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity duration-500" />

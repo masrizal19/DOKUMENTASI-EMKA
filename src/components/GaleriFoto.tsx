@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { Activity, Photo } from "../types.js";
+import { resolveImageUrl } from "../lib/storage.js";
 import { motion, AnimatePresence } from "motion/react";
 import { Calendar, Tag, Image as ImageIcon, Eye, Grid, Search, X, Filter, RotateCcw } from "lucide-react";
 
@@ -355,13 +356,16 @@ export default function GaleriFoto({
                   {/* Card Aspect Ratio Box */}
                   <div className="aspect-[4/3] w-full overflow-hidden relative">
                     <img
-                      src={act.cover_image || undefined}
+                      src={resolveImageUrl(act.cover_image)}
                       alt={act.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-cinematic duration-700"
                       referrerPolicy="no-referrer"
                       onError={(e) => {
-                        console.error("Cover image failed to load:", act.cover_image);
-                        (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+                        const target = e.target as HTMLImageElement;
+                        if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                          console.error("Cover image failed to load in GaleriFoto:", act.cover_image);
+                          target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+                        }
                       }}
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-[#110e09] via-[#110e09]/10 to-transparent opacity-60" />
@@ -436,13 +440,16 @@ export default function GaleriFoto({
                   className="masonry-item group relative overflow-hidden rounded-sm cursor-pointer border border-[#4f4538]/10 hover:border-[#f6c374]/30 transition-cinematic bg-[#110e09]"
                 >
                   <img
-                    src={photo.image_url || undefined}
+                    src={resolveImageUrl(photo.image_url)}
                     alt={photo.title || ""}
                     className="w-full h-auto object-cover transform transition-transform duration-700 group-hover:scale-105"
                     referrerPolicy="no-referrer"
                     onError={(e) => {
-                      console.error("Photo image failed to load:", photo.image_url);
-                      (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+                      const target = e.target as HTMLImageElement;
+                      if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                        console.error("Photo image failed to load in GaleriFoto:", photo.image_url);
+                        target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+                      }
                     }}
                   />
                   {/* Floating Caption on Hover */}

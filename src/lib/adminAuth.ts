@@ -67,19 +67,34 @@ export async function performAdminLogin(
        return { success: false, error: "Gagal menghubungi server login." };
     }
     
-    const data = await response.json();
+    const result = await response.json();
+    console.log("[DEBUG] LOGIN API FULL RESPONSE:", result);
     
-    if (data.success && data.token) {
-      localStorage.setItem("emka_admin_token", data.token);
+    // API returns nested structure: { response: { success: true, ... } }
+    // We check result.response first, if it doesn't exist we fall back to result
+    const apiResponse = (result && typeof result.response === 'object' && result.response !== null) 
+      ? result.response 
+      : result;
+    
+    console.log("[DEBUG] PARSED API RESPONSE:", apiResponse);
+    
+    if (apiResponse && apiResponse.success === true) {
+      // Use a fixed identifier for the session if no token is provided by the PHP API
+      const sessionToken = apiResponse.token || "emka_session_active";
+      
+      localStorage.setItem("emka_admin_token", sessionToken);
+      console.log("[DEBUG] AUTH STATE SAVED TO localStorage: emka_admin_token =", sessionToken);
+      
       return {
         success: true,
-        session: { access_token: data.token },
-        user: data.data || { id: "1", username: cleanUsername },
+        session: { access_token: sessionToken },
+        user: apiResponse.data || { id: "admin", username: cleanUsername },
       };
     } else {
+      console.warn("[DEBUG] LOGIN FAILED ACCORDING TO API:", apiResponse?.message || "Unknown error");
       return {
         success: false,
-        error: data.message || "Username atau PIN salah.",
+        error: apiResponse?.message || "Username atau PIN salah.",
       };
     }
   } catch (err: any) {

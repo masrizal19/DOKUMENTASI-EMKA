@@ -59,6 +59,40 @@ export function getStorageObjectPath(value: string | null | undefined, bucketNam
   return trimmed.startsWith('/') ? trimmed.substring(1) : trimmed;
 }
 
+
+/**
+ * Normalizes image URLs. If the URL is relative, it prepends the VITE_API_URL.
+ * This ensures images from the PHP backend are loaded correctly on different domains.
+ */
+export function resolveImageUrl(url: string | null | undefined): string | undefined {
+  if (!url || typeof url !== 'string') return undefined;
+  const trimmed = url.trim();
+  if (!trimmed) return undefined;
+
+  // If it's already an absolute URL or a special protocol, return as is
+  if (
+    trimmed.startsWith('http://') || 
+    trimmed.startsWith('https://') || 
+    trimmed.startsWith('blob:') || 
+    trimmed.startsWith('data:')
+  ) {
+    return trimmed;
+  }
+
+  // It's a relative path from the PHP server
+  // Fallback to the known production API URL if VITE_API_URL is missing
+  const baseUrl = (import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id";
+  const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  
+  // If it starts with /api/ but baseUrl already includes /api, we should be careful
+  // However, VITE_API_URL is usually just the domain or domain + /api
+  // The rule says VITE_API_URL=https://api.mkverse.my.id
+  
+  const cleanUrl = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  
+  return `${cleanBase}${cleanUrl}`;
+}
+
 export function isValidUUID(id: string | null | undefined): boolean {
   if (!id || typeof id !== 'string') return false;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);

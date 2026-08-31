@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Photo } from "../types.js";
+import { resolveImageUrl } from "../lib/storage.js";
 import { motion, AnimatePresence } from "motion/react";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -68,10 +69,17 @@ export default function Lightbox({ photos, currentIndex, onClose, onNext, onPrev
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-              src={currentPhoto.image_url || undefined}
+              src={resolveImageUrl(currentPhoto.image_url)}
               alt={currentPhoto.title}
               className="max-h-[75vh] max-w-full object-contain rounded-sm select-none"
               referrerPolicy="no-referrer"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                  console.error("Lightbox image failed to load:", currentPhoto.image_url);
+                  target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+                }
+              }}
             />
           </div>
 

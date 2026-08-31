@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { Activity, Photo } from "../types.js";
+import { resolveImageUrl } from "../lib/storage.js";
 import { motion, AnimatePresence } from "motion/react";
 import { Image as ImageIcon, Eye, Tag, Calendar, Search, X, RotateCcw } from "lucide-react";
 
@@ -288,13 +289,16 @@ export default function FotoTerbaruPage({
                         className="cursor-zoom-in overflow-hidden relative"
                       >
                         <img
-                          src={photo.image_url || undefined}
+                          src={resolveImageUrl(photo.image_url)}
                           alt={photo.title || ""}
                           className="w-full object-cover group-hover:scale-[1.03] transition-cinematic duration-700"
                           referrerPolicy="no-referrer"
             onError={(e) => {
-              console.error("Image failed to load in FotoTerbaruPage.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              const target = e.target as HTMLImageElement;
+              if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                console.error("Photo image failed to load in FotoTerbaruPage:", photo.image_url);
+                target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              }
             }}
           />
                         {/* Shimmer Overlay */}

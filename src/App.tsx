@@ -13,6 +13,7 @@ import SearchModal from "./components/SearchModal.js";
 import Notification from "./components/Notification.js";
 import { Calendar, Tag, Shield, Clock, BookOpen, MapPin, Mail, Phone, ExternalLink, Loader2 } from "lucide-react";
 import { fallbackData } from "./lib/fallbackData.js";
+import { resolveImageUrl } from "./lib/storage.js";
 import { getAdminSession, isAdminAuthenticated, performAdminLogout } from "./lib/adminAuth.js";
 
 export default function App() {
@@ -46,6 +47,8 @@ export default function App() {
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
   };
+
+  const API_BASE_URL = `${(import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id"}/api`;
 
   // 1. Fetch public data with timeout and caching
   const fetchPublicData = async () => {
@@ -269,32 +272,33 @@ export default function App() {
       const hash = window.location.hash;
       const pathname = window.location.pathname;
 
-      if (pathname.startsWith("/admin") || hash.startsWith("#admin")) {
+      // Priority: check hash first, then fallback to pathname for entry points/refreshes
+      if (hash.startsWith("#admin") || pathname.includes("/admin")) {
         setActiveTab("admin");
-      } else if (!hash || hash === "#" || hash === "#beranda") {
-        setActiveTab("beranda");
-        setPrevTab("beranda");
-        setActiveSlug("");
-      } else if (hash === "#galeri") {
+      } else if (hash.startsWith("#kegiatan/") || pathname.includes("/kegiatan/")) {
+        const slug = hash.startsWith("#kegiatan/") 
+          ? hash.replace("#kegiatan/", "") 
+          : pathname.split("/kegiatan/").pop()?.split("/")[0];
+        if (slug) {
+          setActiveTab("detail-kegiatan");
+          setActiveSlug(slug);
+        }
+      } else if (hash === "#galeri" || pathname.includes("/galeri")) {
         setActiveTab("galeri");
         setPrevTab("galeri");
         setActiveSlug("");
-      } else if (hash === "#kegiatan") {
-        setActiveTab("kegiatan");
-        setPrevTab("kegiatan");
-        setActiveSlug("");
-      } else if (hash === "#foto-terbaru") {
+      } else if (hash === "#foto-terbaru" || pathname.includes("/foto-terbaru")) {
         setActiveTab("foto-terbaru");
         setPrevTab("foto-terbaru");
         setActiveSlug("");
-      } else if (hash === "#tentang") {
+      } else if (hash === "#tentang" || pathname.includes("/tentang")) {
         setActiveTab("tentang");
         setPrevTab("tentang");
         setActiveSlug("");
-      } else if (hash.startsWith("#kegiatan/")) {
-        const slug = hash.replace("#kegiatan/", "");
-        setActiveTab("detail-kegiatan");
-        setActiveSlug(slug);
+      } else {
+        setActiveTab("beranda");
+        setPrevTab("beranda");
+        setActiveSlug("");
       }
     };
 
@@ -309,26 +313,43 @@ export default function App() {
     };
   }, []);
 
-  // Navigate utility that syncs with address bar hash
+  // Navigate utility that syncs with address bar
   const navigateTo = (tab: "beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "admin", slug?: string) => {
+    // Get the base path (e.g., "/galeri-emka/") to keep it when using pushState
+    const currentPath = window.location.pathname;
+    const basePath = currentPath.includes("/admin") 
+      ? currentPath.split("/admin")[0] 
+      : currentPath.includes("/kegiatan/")
+      ? currentPath.split("/kegiatan/")[0]
+      : currentPath.endsWith("/") ? currentPath : currentPath.split("/").slice(0, -1).join("/") + "/";
+    
+    // Ensure basePath ends with a slash and doesn't contain the route
+    const cleanBase = basePath.endsWith("/") ? basePath : basePath + "/";
+
     if (tab === "admin") {
-      window.location.hash = "#admin";
+      window.history.pushState(null, "", cleanBase + "admin");
       setActiveTab("admin");
     } else if (slug) {
-      window.location.hash = `#kegiatan/${slug}`;
+      window.history.pushState(null, "", cleanBase + "kegiatan/" + slug);
       setActiveTab("detail-kegiatan");
       setActiveSlug(slug);
     } else {
-      window.location.hash = `#${tab}`;
+      const route = tab === "beranda" ? "" : tab;
+      window.history.pushState(null, "", cleanBase + route);
       setActiveTab(tab);
     }
+    
+    // Trigger the location change manually since pushState doesn't trigger popstate
+    // But since we already called setStates, it's mostly for other listeners if any
   };
 
   const handleAdminLogin = (token: string) => {
-    sessionStorage.setItem("admin_token", token);
+    console.log("[DEBUG] handleAdminLogin CALLED with token:", token);
+    localStorage.setItem("emka_admin_token", token);
     setAdminToken(token);
     setIsAdminLoggedIn(true);
     setIsAuthLoading(false);
+    console.log("[DEBUG] NAVIGATING TO ADMIN DASHBOARD - isAdminLoggedIn is now:", true);
     navigateTo("admin");
   };
 
@@ -823,10 +844,17 @@ export default function App() {
               </div>
               <div className="relative aspect-video rounded-sm overflow-hidden border border-[#4f4538]/20 bg-[#110e09] shadow-2xl">
                 <img
-                  src={activeSettings.about_photo || "https://lh3.googleusercontent.com/aida-public/AB6AXuDUIWUTpU9L6rWIPSvj7HHxKYp5MyIlSXwvEsqL-tW6v6GfCLvaaEffEXHfQ77mBbEYaZw1BF3EcDHw0lOCi5vW8MPkBpT22H3x8wdiXxzETSwxlrZB068547LOB_u9sqAfel2p41Lf2y-thR-6B9PHMWL6KgNu3a67v3J4MedZhF3Z_AbGLjnFAL4hHkRJf073lHOcFkWpyu4J-Tiw3LXR5B4Q-bVLUczAQy718Z_UqhyfJvg9M2AT" || undefined}
+                  src={resolveImageUrl(activeSettings.about_photo) || "https://lh3.googleusercontent.com/aida-public/AB6AXuDUIWUTpU9L6rWIPSvj7HHxKYp5MyIlSXwvEsqL-tW6v6GfCLvaaEffEXHfQ77mBbEYaZw1BF3EcDHw0lOCi5vW8MPkBpT22H3x8wdiXxzETSwxlrZB068547LOB_u9sqAfel2p41Lf2y-thR-6B9PHMWL6KgNu3a67v3J4MedZhF3Z_AbGLjnFAL4hHkRJf073lHOcFkWpyu4J-Tiw3LXR5B4Q-bVLUczAQy718Z_UqhyfJvg9M2AT"}
                   alt="Philosophy Visual"
                   className="w-full h-full object-cover opacity-80"
                   referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                      console.error("About photo failed to load:", activeSettings.about_photo);
+                      target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+                    }
+                  }}
                 />
               </div>
             </div>
@@ -885,19 +913,24 @@ export default function App() {
                 Memeriksa sesi admin...
               </p>
             </div>
-          ) : isAdminLoggedIn ? (
-            <AdminDashboard
-              token={adminToken || ""}
-              onLogout={handleAdminLogout}
-              onShowToast={showToast}
-              onRefreshData={fetchPublicData}
-            />
           ) : (
-            <AdminLogin
-              onLoginSuccess={handleAdminLogin}
-              onBackToHome={() => navigateTo("beranda")}
-              onShowToast={showToast}
-            />
+            (() => {
+              console.log("[DEBUG] Rendering Admin Tab - isAdminLoggedIn:", isAdminLoggedIn, "adminToken:", adminToken ? "exists" : "null");
+              return isAdminLoggedIn ? (
+                <AdminDashboard
+                  token={adminToken || ""}
+                  onLogout={handleAdminLogout}
+                  onShowToast={showToast}
+                  onRefreshData={fetchPublicData}
+                />
+              ) : (
+                <AdminLogin
+                  onLoginSuccess={handleAdminLogin}
+                  onBackToHome={() => navigateTo("beranda")}
+                  onShowToast={showToast}
+                />
+              );
+            })()
           )
         )}
       </div>

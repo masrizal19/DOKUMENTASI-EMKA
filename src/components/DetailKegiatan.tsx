@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Activity, Photo } from "../types.js";
+import { resolveImageUrl } from "../lib/storage.js";
 import { motion } from "motion/react";
 import { Calendar, Tag, Share2, Copy, Send, ArrowLeft, ArrowRight, Play, Eye, FolderOpen, Camera } from "lucide-react";
 
@@ -73,13 +74,16 @@ export default function DetailKegiatan({
         {/* Sync Background video/image with fallback */}
         <div className="absolute inset-0 z-0">
           <img
-            src={activity.cover_image || undefined}
+            src={resolveImageUrl(activity.cover_image)}
             alt={activity.title}
             className="w-full h-full object-cover opacity-60 filter brightness-50"
             referrerPolicy="no-referrer"
             onError={(e) => {
-              console.error("Image failed to load in DetailKegiatan.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              const target = e.target as HTMLImageElement;
+              if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                console.error("Cover image failed to load in DetailKegiatan:", activity.cover_image);
+                target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+              }
             }}
           />
 
@@ -237,15 +241,18 @@ export default function DetailKegiatan({
                 className="masonry-item group relative overflow-hidden rounded-sm cursor-pointer border border-[#4f4538]/10 hover:border-[#f6c374]/30 transition-cinematic bg-[#110e09]"
               >
                 <img
-                  src={photo.image_url || undefined}
+                  src={resolveImageUrl(photo.image_url)}
                   alt={photo.title || activity.title}
                   className="w-full h-auto object-cover transform transition-transform duration-700 group-hover:scale-105"
                   referrerPolicy="no-referrer"
-            onError={(e) => {
-              console.error("Image failed to load in DetailKegiatan.tsx");
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
-            }}
-          />
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                      console.error("Photo image failed to load in DetailKegiatan:", photo.image_url);
+                      target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+                    }
+                  }}
+                />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#110e09]/95 via-[#110e09]/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex flex-col justify-end p-6">
                   <p className="font-subheading text-[14px] text-[#eae1d8] transform translate-y-4 group-hover:translate-y-0 transition-transform duration-500 font-semibold leading-snug">
                     {photo.title || activity.title}
