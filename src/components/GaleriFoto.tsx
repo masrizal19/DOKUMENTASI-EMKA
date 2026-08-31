@@ -131,7 +131,8 @@ export default function GaleriFoto({
 
         // Category filter
         if (selectedCategory !== "Semua") {
-          if (!act || act.category !== selectedCategory) {
+          const categoryName = act ? (act.category || act.title) : "Lainnya";
+          if (categoryName !== selectedCategory) {
             return false;
           }
         }
@@ -160,7 +161,20 @@ export default function GaleriFoto({
         return {
           ...photo,
           is_cover: isCover,
-          activity: act,
+          activity: act || {
+            id: String(photo.category_id),
+            title: "Momen Galeri",
+            slug: "momen-galeri",
+            category: "Lainnya",
+            date: photo.created_at || "0000-00-00",
+            description: "",
+            cover_image: "",
+            background_image: "",
+            background_video: "",
+            status: "published",
+            created_at: photo.created_at || new Date().toISOString(),
+            updated_at: photo.updated_at || new Date().toISOString()
+          } as Activity,
         };
       });
 

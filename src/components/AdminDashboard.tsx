@@ -83,7 +83,7 @@ const supabase = {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             id: payload.p_id || null,
-            title: payload.p_title,
+            name: payload.p_title, // Send title as name for categories.php
             category: payload.p_category,
             event_date: payload.p_date,
             description: payload.p_description || "",
@@ -447,10 +447,10 @@ export default function AdminDashboard({
       let mappedActivities: Activity[] = [];
       if (actData && actData.success && actData.data) {
         mappedActivities = (actData.data as any[]).map((row: any) => ({
-          id: row.id,
-          title: row.title || row.name || "",
-          slug: row.slug || row.name?.toLowerCase().replace(/\s+/g, "-") || "",
-          category: row.category || row.name || "",
+          id: String(row.id),
+          title: row.name || row.title || "",
+          slug: row.slug || (row.name || row.title || "").toLowerCase().replace(/\s+/g, "-") || "",
+          category: row.name || row.category || "",
           date:
             row.date ||
             row.event_date ||
@@ -458,14 +458,11 @@ export default function AdminDashboard({
           description: row.description || "",
           cover_image: row.cover_image || "",
           background_video: row.background_video || "",
+          background_video_start: row.background_video_start || 0,
+          background_video_end: row.background_video_end || null,
+          background_video_loop: row.background_video_loop !== false,
           google_drive_url: row.google_drive_url || null,
-          status:
-            row.published === true ||
-            String(row.published) === "true" ||
-            row.status === "published" ||
-            row.status === undefined
-              ? "published"
-              : "draft",
+          status: "published",
           created_at: row.created_at || new Date().toISOString(),
           updated_at: row.updated_at || new Date().toISOString(),
         }));
@@ -482,11 +479,13 @@ export default function AdminDashboard({
       let mappedPhotos: Photo[] = [];
       if (photosData && photosData.success && photosData.data) {
         mappedPhotos = (photosData.data as any[]).map((row: any) => ({
-          id: row.id,
-          category_id: String(row.category_id || row.activity_id || ""),
-          activity_id: String(row.category_id || row.activity_id || ""),
-          title: row.title || row.description || "",
+          id: String(row.id),
+          category_id: String(row.category_id || ""),
+          activity_id: String(row.category_id || ""), // Link to activity via category_id
+          title: row.title || row.description || "Foto Galeri",
           image_url: row.image_url,
+          description: row.description || "",
+          event_date: row.event_date || "0000-00-00",
           sort_order: parseInt(row.display_order) || 0,
           is_featured:
             row.is_featured === "1" ||

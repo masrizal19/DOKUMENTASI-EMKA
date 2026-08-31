@@ -93,7 +93,8 @@ export default function FotoTerbaruPage({
 
       // Category check
       if (selectedCategory !== "Semua") {
-        if (!act || act.category !== selectedCategory) {
+        const categoryName = act ? (act.category || act.title) : "Lainnya";
+        if (categoryName !== selectedCategory) {
           return false;
         }
       }
@@ -119,7 +120,20 @@ export default function FotoTerbaruPage({
       return {
         ...photo,
         is_cover: isCover,
-        activity: act,
+        activity: act || {
+          id: String(photo.category_id),
+          title: "Momen Galeri",
+          slug: "momen-galeri",
+          category: "Lainnya",
+          date: photo.created_at || "0000-00-00",
+          description: "",
+          cover_image: "",
+          background_image: "",
+          background_video: "",
+          status: "published",
+          created_at: photo.created_at || new Date().toISOString(),
+          updated_at: photo.updated_at || new Date().toISOString()
+        } as Activity,
       };
     });
 
@@ -277,7 +291,7 @@ export default function FotoTerbaruPage({
             ) : (
               <div className="columns-1 sm:columns-2 md:columns-3 lg:columns-4 gap-6 [column-fill:_balance] space-y-6">
                 {filteredPhotos.map((photo, pIdx) => {
-                  const parentActivity = activityMap.get(photo.activity_id);
+                  const parentActivity = activityMap.get(String(photo.category_id));
                   return (
                     <div
                       key={photo.id}

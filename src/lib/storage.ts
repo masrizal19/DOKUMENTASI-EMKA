@@ -61,35 +61,38 @@ export function getStorageObjectPath(value: string | null | undefined, bucketNam
 
 
 /**
- * Normalizes image URLs. If the URL is relative, it prepends the VITE_API_URL.
- * This ensures images from the PHP backend are loaded correctly on different domains.
+ * Normalizes image URLs. If the URL is already absolute, it returns it exactly as is.
+ * If it's a relative path from the PHP server, it prepends the correct domain.
  */
 export function resolveImageUrl(url: string | null | undefined): string | undefined {
   if (!url || typeof url !== 'string') return undefined;
+  
   const trimmed = url.trim();
   if (!trimmed) return undefined;
 
-  // If it's already an absolute URL or a special protocol, return as is
-  if (
-    trimmed.startsWith('http://') || 
-    trimmed.startsWith('https://') || 
-    trimmed.startsWith('blob:') || 
-    trimmed.startsWith('data:')
-  ) {
+  // 1. If it's already an absolute URL (starts with http:// or https://), USE IT DIRECTLY.
+  // This prevents adding ?p= or other routing parameters.
+  if (trimmed.toLowerCase().startsWith('http://') || trimmed.toLowerCase().startsWith('https://')) {
     return trimmed;
   }
 
-  // It's a relative path from the PHP server
-  // Fallback to the known production API URL if VITE_API_URL is missing
+  // 2. Handle special protocols
+  if (trimmed.startsWith('blob:') || trimmed.startsWith('data:')) {
+    return trimmed;
+  }
+
+  // 3. Handle relative paths from the PHP server
+  // The user specified that images are at https://galeri.mkverse.my.id/uploads/
+  // But standard API base is https://api.mkverse.my.id
+  // We use the configured VITE_API_URL or fallback to the domain.
+  
   const baseUrl = (import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id";
   const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
   
-  // If it starts with /api/ but baseUrl already includes /api, we should be careful
-  // However, VITE_API_URL is usually just the domain or domain + /api
-  // The rule says VITE_API_URL=https://api.mkverse.my.id
-  
+  // Ensure the relative part starts with a slash
   const cleanUrl = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
   
+  // CONSTRUCT THE FINAL URL WITHOUT ?p=
   return `${cleanBase}${cleanUrl}`;
 }
 

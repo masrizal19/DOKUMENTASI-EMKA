@@ -173,11 +173,13 @@ export default function App() {
           background_video_end: row.background_video_end || null,
           background_video_loop: row.background_video_loop !== false,
           google_drive_url: row.google_drive_url || null,
-          status: "published", // Categories are generally always published in this new structure
+          status: "published", 
           created_at: row.created_at || new Date().toISOString(),
           updated_at: row.updated_at || new Date().toISOString()
         }));
       }
+
+      console.log('[GALERI DEBUG] categories:', mappedActivities);
 
       // 3. Fetch photos/media from PHP API with timeout
       const photosPromise = fetch(`${apiUrl}/api/photos.php`).then(res => res.json());
@@ -190,11 +192,11 @@ export default function App() {
 
       let mappedPhotos: Photo[] = [];
       if (photosResult && photosResult.success && photosResult.data) {
-        console.log("PHP API Photos Response:", photosResult.data);
+        console.log('[GALERI DEBUG] photos:', photosResult.data);
         mappedPhotos = (photosResult.data as any[]).map((row: any) => ({
           id: String(row.id),
-          category_id: String(row.category_id),
-          activity_id: String(row.category_id), // Kept for backward compatibility
+          category_id: String(row.category_id || ""),
+          activity_id: String(row.category_id || ""), // Kept for compatibility
           title: row.title || row.description || "Foto Galeri",
           image_url: row.image_url,
           description: row.description || "",
@@ -204,6 +206,7 @@ export default function App() {
           created_at: row.created_at || new Date().toISOString(),
           updated_at: row.updated_at || new Date().toISOString()
         }));
+        console.log('[GALERI DEBUG] mapped photos:', mappedPhotos);
       }
 
       // If we got valid fresh data, update states and caching
@@ -215,6 +218,25 @@ export default function App() {
       if (photosResult && photosResult.success && Array.isArray(photosResult.data)) {
         setPhotos(mappedPhotos);
         sessionStorage.setItem("emka_cached_photos", JSON.stringify(mappedPhotos));
+
+        // IMPROVEMENT: If activity (category) has no cover_image, use the latest photo from that category
+        const updatedActivities = mappedActivities.map(act => {
+          if (!act.cover_image) {
+            const latestPhoto = mappedPhotos
+              .filter(p => String(p.category_id) === String(act.id))
+              .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+            
+            if (latestPhoto) {
+              return { ...act, cover_image: latestPhoto.image_url };
+            }
+          }
+          return act;
+        });
+        
+        if (updatedActivities.some((act, idx) => act.cover_image !== mappedActivities[idx].cover_image)) {
+          setActivities(updatedActivities);
+          sessionStorage.setItem("emka_cached_activities", JSON.stringify(updatedActivities));
+        }
       }
       if (activeSet) {
         setSettings(activeSet);
@@ -374,7 +396,7 @@ export default function App() {
   };
 
   const currentDetailActivity = activities.find((act) => act.slug === activeSlug);
-  const currentDetailPhotos = photos.filter((p) => p.activity_id === currentDetailActivity?.id);
+  const currentDetailPhotos = photos.filter((p) => String(p.category_id) === String(currentDetailActivity?.id));
 
   // Active Site Settings Fallbacks
   const activeSettings: Settings = (settings || {
