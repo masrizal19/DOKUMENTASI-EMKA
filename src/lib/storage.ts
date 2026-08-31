@@ -70,33 +70,19 @@ export function resolveImageUrl(url: string | null | undefined): string | undefi
   const trimmed = url.trim();
   if (!trimmed) return undefined;
 
-  // 1. If it's already an absolute URL (starts with http:// or https://), USE IT DIRECTLY.
-  // This prevents adding ?p= or other routing parameters.
+  // 1. If it's already an absolute URL, USE IT DIRECTLY.
   if (trimmed.toLowerCase().startsWith('http://') || trimmed.toLowerCase().startsWith('https://')) {
     return trimmed;
   }
 
-  // 2. Handle special protocols
-  if (trimmed.startsWith('blob:') || trimmed.startsWith('data:')) {
-    return trimmed;
-  }
-
-  // 3. Handle relative paths
-  // If it starts with 'uploads/', it belongs to galeri.mkverse.my.id
-  if (trimmed.startsWith('uploads/') || trimmed.startsWith('/uploads/')) {
-    const cleanUrl = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  // 2. Handle paths starting with /uploads/ or uploads/
+  const cleanUrl = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  if (cleanUrl.startsWith('/uploads/')) {
     return `https://galeri.mkverse.my.id${cleanUrl}`;
   }
   
-  // Fallback to API URL for other relative paths
-  const baseUrl = (import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id";
-  const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-  
-  // Ensure the relative part starts with a slash
-  const cleanUrl = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-  
-  // CONSTRUCT THE FINAL URL WITHOUT ?p=
-  return `${cleanBase}${cleanUrl}`;
+  // 3. Fallback for filenames to /uploads/
+  return `https://galeri.mkverse.my.id/uploads/${trimmed}`;
 }
 
 export function isValidUUID(id: string | null | undefined): boolean {
