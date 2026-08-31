@@ -81,11 +81,14 @@ export function resolveImageUrl(url: string | null | undefined): string | undefi
     return trimmed;
   }
 
-  // 3. Handle relative paths from the PHP server
-  // The user specified that images are at https://galeri.mkverse.my.id/uploads/
-  // But standard API base is https://api.mkverse.my.id
-  // We use the configured VITE_API_URL or fallback to the domain.
+  // 3. Handle relative paths
+  // If it starts with 'uploads/', it belongs to galeri.mkverse.my.id
+  if (trimmed.startsWith('uploads/') || trimmed.startsWith('/uploads/')) {
+    const cleanUrl = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+    return `https://galeri.mkverse.my.id${cleanUrl}`;
+  }
   
+  // Fallback to API URL for other relative paths
   const baseUrl = (import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id";
   const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
   
@@ -98,5 +101,7 @@ export function resolveImageUrl(url: string | null | undefined): string | undefi
 
 export function isValidUUID(id: string | null | undefined): boolean {
   if (!id || typeof id !== 'string') return false;
+  // If it's a numeric ID (MySQL), it's valid for this context
+  if (/^\d+$/.test(id)) return true;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
 }

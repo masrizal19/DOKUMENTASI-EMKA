@@ -75,45 +75,54 @@ const supabase = {
     from: (bucket?: string) => ({ remove: async (paths: string[]) => ({ data: null, error: null }) })
   },
   rpc: async (name: string, payload: any) => {
+    console.log(`[API REQUEST] RPC: ${name}`, payload);
     try {
       if (name === "admin_save_activity") {
         const method = payload.p_id ? "PUT" : "POST";
+        const body = {
+          id: payload.p_id || null,
+          name: payload.p_title, 
+          category: payload.p_category,
+          event_date: payload.p_date,
+          description: payload.p_description || "",
+          cover_image: payload.p_cover_image || "",
+          background_video: payload.p_background_video || "",
+          status: payload.p_published ? "published" : "draft"
+        };
+        console.log(`[API CALL] ${method} categories.php`, body);
         const res = await fetch(`${API_BASE_URL}/categories.php`, {
           method,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: payload.p_id || null,
-            name: payload.p_title, // Send title as name for categories.php
-            category: payload.p_category,
-            event_date: payload.p_date,
-            description: payload.p_description || "",
-            cover_image: payload.p_cover_image || "",
-            background_video: payload.p_background_video || "",
-            status: payload.p_published ? "published" : "draft"
-          })
+          body: JSON.stringify(body)
         });
         const result = await res.json();
+        console.log(`[API RESPONSE] categories.php`, result);
         return { data: result, error: result.success ? null : new Error(result.message) };
       }
       if (name === "admin_delete_activity") {
-        const res = await fetch(`${API_BASE_URL}/categories.php`, {
+        console.log(`[API CALL] DELETE categories.php?id=${payload.p_id}`);
+        const res = await fetch(`${API_BASE_URL}/categories.php?id=${payload.p_id}`, {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: payload.p_id })
+          body: JSON.stringify({ id: payload.p_id }) // Send both for compatibility
         });
         const result = await res.json();
+        console.log(`[API RESPONSE] categories.php`, result);
         return { data: result, error: result.success ? null : new Error(result.message) };
       }
       if (name === "admin_save_settings") {
+        console.log(`[API CALL] POST settings.php`, payload);
         const res = await fetch(`${API_BASE_URL}/settings.php`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
         const result = await res.json();
+        console.log(`[API RESPONSE] settings.php`, result);
         return { data: result, error: result.success ? null : new Error(result.message) };
       }
     } catch(e: any) {
+      console.error(`[API ERROR] ${name}:`, e);
       return { error: e };
     }
     return { data: null, error: null };
@@ -154,41 +163,57 @@ const supabase = {
         if (table === "activities" && _eqField === "id" && _eqValue) {
            // This is used for setting cover image!
            if ("cover_image" in payload) {
+             console.log(`[API CALL] PUT categories.php (Cover Update)`, { id: _eqValue, cover_image: payload.cover_image });
              fetch(`${API_BASE_URL}/categories.php`, {
                method: "PUT",
                headers: { "Content-Type": "application/json" },
                body: JSON.stringify({ id: _eqValue, cover_image: payload.cover_image })
-             }).catch(() => null);
+             }).then(r => r.json()).then(res => {
+               console.log(`[API RESPONSE] categories.php`, res);
+             }).catch(err => {
+               console.error(`[API ERROR] categories.php`, err);
+             });
            }
         }
         if (table === "activity_media" && _eqField === "id" && _eqValue) {
+           const body = {
+             id: _eqValue,
+             category_id: payload.activity_id,
+             title: payload.caption || payload.title || "",
+             image_url: payload.url || payload.image_url || "",
+             display_order: payload.sort_order || 0
+           };
+           console.log(`[API CALL] PUT photos.php`, body);
            fetch(`${API_BASE_URL}/photos.php`, {
              method: "PUT",
              headers: { "Content-Type": "application/json" },
-             body: JSON.stringify({
-               id: _eqValue,
-               category_id: payload.activity_id,
-               title: payload.caption || "",
-               image_url: payload.url || "",
-               display_order: payload.sort_order || 0
-             })
-           }).catch(() => null);
+             body: JSON.stringify(body)
+           }).then(r => r.json()).then(res => {
+             console.log(`[API RESPONSE] photos.php`, res);
+           }).catch(err => {
+             console.error(`[API ERROR] photos.php`, err);
+           });
         }
         return obj;
       },
       insert: (arr: any[]) => {
         if (table === "activity_media" && arr.length > 0) {
            const payload = arr[0];
+           console.log(`[API CALL] POST add-photo.php`, payload);
            fetch(`${API_BASE_URL}/add-photo.php`, {
              method: "POST",
              headers: { "Content-Type": "application/json" },
              body: JSON.stringify({
                category_id: payload.activity_id,
-               title: payload.caption || "",
-               image_url: payload.url || "",
+               title: payload.caption || payload.title || "",
+               image_url: payload.url || payload.image_url || "",
                display_order: payload.sort_order || 0
              })
-           }).catch(() => null);
+           }).then(r => r.json()).then(res => {
+             console.log(`[API RESPONSE] add-photo.php`, res);
+           }).catch(err => {
+             console.error(`[API ERROR] add-photo.php`, err);
+           });
         }
         return obj;
       },
@@ -483,7 +508,7 @@ export default function AdminDashboard({
           category_id: String(row.category_id || ""),
           activity_id: String(row.category_id || ""), // Link to activity via category_id
           title: row.title || row.description || "Foto Galeri",
-          image_url: row.image_url,
+          image_url: resolveImageUrl(row.image_url) || "",
           description: row.description || "",
           event_date: row.event_date || "0000-00-00",
           sort_order: parseInt(row.display_order) || 0,
