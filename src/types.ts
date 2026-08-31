@@ -1,3 +1,15 @@
+export interface Category {
+  id: string;
+  name: string;
+  slug?: string;
+  description?: string;
+  cover_image?: string;
+  date?: string;
+  status?: 'published' | 'draft';
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface Activity {
   id: string;
   title: string;
@@ -18,15 +30,19 @@ export interface Activity {
 
 export interface Photo {
   id: string;
-  activity_id: string;
+  category_id: string;
+  activity_id?: string; // For backward compatibility
   title: string;
   image_url: string;
+  description?: string;
+  event_date?: string;
   sort_order: number;
-  aspect_ratio?: 'landscape' | 'portrait' | '16:9' | '9:16' | string;
-  is_cover?: boolean;
   is_featured?: boolean;
+  is_cover?: boolean;
+  aspect_ratio?: string;
   created_at: string;
   updated_at: string;
+  activity?: Activity; // Attached during mapping (category)
 }
 
 export interface SectionSetting {

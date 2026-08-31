@@ -28,15 +28,14 @@ export default function FotoTerbaruPage({
 
   // Map activities by ID for instant O(1) lookups
   const activityMap = useMemo(() => {
-    return new Map(activities.map((act) => [act.id, act]));
+    return new Map(activities.map((act) => [String(act.id), act]));
   }, [activities]);
 
-  // Extract unique categories of published activities
+  // Extract unique categories
   const categories = useMemo(() => {
     const list = new Set(
       activities
-        .filter((act) => act.status === "published")
-        .map((act) => act.category)
+        .map((act) => act.category || act.title)
         .filter(Boolean)
     );
     return ["Semua", ...Array.from(list)];
@@ -47,12 +46,12 @@ export default function FotoTerbaruPage({
     const yearsSet = new Set<string>();
 
     photos.forEach((photo) => {
-      const y = getYear(photo.created_at);
+      const y = getYear(photo.created_at) || getYear((photo as any).event_date);
       if (y && parseInt(y) > 2000 && parseInt(y) < 2100) yearsSet.add(y);
     });
 
     activities.forEach((act) => {
-      const y = getYear(act.date);
+      const y = getYear(act.date) || getYear(act.created_at);
       if (y && parseInt(y) > 2000 && parseInt(y) < 2100) yearsSet.add(y);
     });
 
@@ -60,22 +59,23 @@ export default function FotoTerbaruPage({
     return ["Semua", ...sorted];
   }, [photos, activities]);
 
-  // Filter photos dynamically based on search, category, year, and whether parent activity is published
+  // Filter photos dynamically based on search, category, and year
   const filteredPhotos = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
 
-    // Pool all photo items from photos table
+    // Pool all photo items
     const photoPool: Photo[] = [...photos];
 
-    // Also ensure each published activity's cover_image is included if not already present
+    // Ensure each activity's cover_image is included if not already present
     const existingUrls = new Set(photos.map((p) => p.image_url));
     activities
-      .filter((act) => act.status === "published" && act.cover_image)
+      .filter((act) => act.cover_image)
       .forEach((act) => {
         if (!existingUrls.has(act.cover_image)) {
           photoPool.push({
             id: `act-cover-${act.id}`,
-            activity_id: act.id,
+            category_id: String(act.id),
+            activity_id: String(act.id),
             title: act.title,
             image_url: act.cover_image,
             sort_order: 0,
@@ -87,14 +87,14 @@ export default function FotoTerbaruPage({
       });
 
     const validPhotos = photoPool.filter((photo) => {
-      const act = activityMap.get(photo.activity_id);
-      if (!act || act.status !== "published") return false;
-
-      const photoYear = getYear(photo.created_at) || getYear(act.date);
+      const act = activityMap.get(String(photo.category_id));
+      const photoYear = getYear(photo.created_at) || (act ? getYear(act.date) : "");
 
       // Category check
-      if (selectedCategory !== "Semua" && act.category !== selectedCategory) {
-        return false;
+      if (selectedCategory !== "Semua") {
+        if (!act || act.category !== selectedCategory) {
+          return false;
+        }
       }
 
       // Year check
@@ -105,19 +105,20 @@ export default function FotoTerbaruPage({
       // Search query check
       if (query) {
         const titleMatch = (photo.title || "").toLowerCase().includes(query);
-        const actMatch = (act.title || "").toLowerCase().includes(query);
-        const catMatch = (act.category || "").toLowerCase().includes(query);
+        const actMatch = act ? (act.title || "").toLowerCase().includes(query) : false;
+        const catMatch = act ? (act.category || "").toLowerCase().includes(query) : false;
         const yearMatch = photoYear.includes(query);
         if (!titleMatch && !actMatch && !catMatch && !yearMatch) return false;
       }
 
       return true;
     }).map((photo) => {
-      const act = activityMap.get(photo.activity_id);
+      const act = activityMap.get(String(photo.category_id));
       const isCover = photo.is_cover || (act ? act.cover_image === photo.image_url : false);
       return {
         ...photo,
         is_cover: isCover,
+        activity: act,
       };
     });
 
@@ -287,11 +288,15 @@ export default function FotoTerbaruPage({
                         className="cursor-zoom-in overflow-hidden relative"
                       >
                         <img
-                          src={photo.image_url}
+                          src={photo.image_url || undefined}
                           alt={photo.title || ""}
                           className="w-full object-cover group-hover:scale-[1.03] transition-cinematic duration-700"
                           referrerPolicy="no-referrer"
-                        />
+            onError={(e) => {
+              console.error("Image failed to load in FotoTerbaruPage.tsx");
+              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+            }}
+          />
                         {/* Shimmer Overlay */}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-5 space-y-3" />
                       </div>

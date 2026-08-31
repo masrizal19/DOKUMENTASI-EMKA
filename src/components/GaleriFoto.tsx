@@ -30,18 +30,17 @@ export default function GaleriFoto({
     return isNaN(d.getFullYear()) ? "" : d.getFullYear().toString();
   };
 
-  // Get list of unique categories dynamically from activities
+  // Get list of unique categories dynamically from activities (which are now categories from PHP API)
   const categories = useMemo(() => {
     const list = new Set(
       activities
-        .filter((act) => act.status === "published")
-        .map((act) => act.category)
+        .map((act) => act.category || act.title)
         .filter(Boolean)
     );
     return ["Semua", ...Array.from(list)];
   }, [activities]);
 
-  // Extract list of unique years dynamically from Supabase activities & photos
+  // Extract list of unique years dynamically from activities & photos
   const years = useMemo(() => {
     const yearsSet = new Set<string>();
 
@@ -53,7 +52,7 @@ export default function GaleriFoto({
     });
 
     photos.forEach((photo) => {
-      const y = getYear(photo.created_at);
+      const y = getYear(photo.created_at || (photo as any).event_date);
       if (y && parseInt(y) > 2000 && parseInt(y) < 2100) yearsSet.add(y);
     });
 
@@ -61,18 +60,18 @@ export default function GaleriFoto({
     return ["Semua", ...sorted];
   }, [activities, photos]);
 
-  // Map activities by ID for instant O(1) lookups
-  const actMap = useMemo(() => {
-    return new Map(activities.map((act) => [act.id, act]));
+  // Map categories by ID for instant O(1) lookups
+  const catMap = useMemo(() => {
+    return new Map(activities.map((act) => [String(act.id), act]));
   }, [activities]);
+
+  const actMap = catMap;
 
   // Filter activities dynamically based on Category + Year + Search Query
   const filteredActivities = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
 
     return activities.filter((act) => {
-      if (act.status !== "published") return false;
-
       // Category filter
       if (selectedCategory !== "Semua" && act.category !== selectedCategory) {
         return false;
@@ -101,18 +100,19 @@ export default function GaleriFoto({
   const filteredPhotos = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
 
-    // Pool all photo items from photos table
+    // Pool all photo items
     const photoPool: Photo[] = [...photos];
 
-    // Also ensure each published activity's cover_image is included if not already present
+    // Ensure each activity's cover_image is included if not already present
     const existingUrls = new Set(photos.map((p) => p.image_url));
     activities
-      .filter((act) => act.status === "published" && act.cover_image)
+      .filter((act) => act.cover_image)
       .forEach((act) => {
         if (!existingUrls.has(act.cover_image)) {
           photoPool.push({
             id: `act-cover-${act.id}`,
-            activity_id: act.id,
+            category_id: String(act.id),
+            activity_id: String(act.id),
             title: act.title,
             image_url: act.cover_image,
             sort_order: 0,
@@ -125,14 +125,14 @@ export default function GaleriFoto({
 
     const validPhotos = photoPool
       .filter((photo) => {
-        const act = actMap.get(photo.activity_id);
-        if (!act || act.status !== "published") return false;
-
-        const photoYear = getYear(photo.created_at) || getYear(act.date);
+        const act = catMap.get(String(photo.category_id));
+        const photoYear = getYear(photo.created_at) || (act ? getYear(act.date) : "");
 
         // Category filter
-        if (selectedCategory !== "Semua" && act.category !== selectedCategory) {
-          return false;
+        if (selectedCategory !== "Semua") {
+          if (!act || act.category !== selectedCategory) {
+            return false;
+          }
         }
 
         // Year filter
@@ -143,11 +143,10 @@ export default function GaleriFoto({
         // Search Query filter
         if (query) {
           const titleMatch = (photo.title || "").toLowerCase().includes(query);
-          const actTitleMatch = (act.title || "").toLowerCase().includes(query);
-          const actCatMatch = (act.category || "").toLowerCase().includes(query);
-          const actDescMatch = (act.description || "").toLowerCase().includes(query);
+          const actTitleMatch = act ? (act.title || "").toLowerCase().includes(query) : false;
+          const actCatMatch = act ? (act.category || "").toLowerCase().includes(query) : false;
           const yearMatch = photoYear.includes(query);
-          if (!titleMatch && !actTitleMatch && !actCatMatch && !actDescMatch && !yearMatch) {
+          if (!titleMatch && !actTitleMatch && !actCatMatch && !yearMatch) {
             return false;
           }
         }
@@ -155,7 +154,7 @@ export default function GaleriFoto({
         return true;
       })
       .map((photo) => {
-        const act = actMap.get(photo.activity_id);
+        const act = catMap.get(String(photo.category_id));
         const isCover = photo.is_cover || (act ? act.cover_image === photo.image_url : false);
         return {
           ...photo,
@@ -356,10 +355,14 @@ export default function GaleriFoto({
                   {/* Card Aspect Ratio Box */}
                   <div className="aspect-[4/3] w-full overflow-hidden relative">
                     <img
-                      src={act.cover_image}
+                      src={act.cover_image || undefined}
                       alt={act.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-cinematic duration-700"
                       referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        console.error("Cover image failed to load:", act.cover_image);
+                        (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+                      }}
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-[#110e09] via-[#110e09]/10 to-transparent opacity-60" />
 
@@ -433,10 +436,14 @@ export default function GaleriFoto({
                   className="masonry-item group relative overflow-hidden rounded-sm cursor-pointer border border-[#4f4538]/10 hover:border-[#f6c374]/30 transition-cinematic bg-[#110e09]"
                 >
                   <img
-                    src={photo.image_url}
+                    src={photo.image_url || undefined}
                     alt={photo.title || ""}
                     className="w-full h-auto object-cover transform transition-transform duration-700 group-hover:scale-105"
                     referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      console.error("Photo image failed to load:", photo.image_url);
+                      (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+                    }}
                   />
                   {/* Floating Caption on Hover */}
                   <div className="absolute inset-0 bg-gradient-to-t from-[#110e09]/95 via-[#110e09]/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex flex-col justify-end p-6">

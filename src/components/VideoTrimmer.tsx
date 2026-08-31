@@ -189,7 +189,7 @@ export default function VideoTrimmer({
         <div className="absolute inset-0 flex">
           {thumbnails.length > 0 ? (
             thumbnails.map((src, i) => (
-              <img key={i} src={src} alt="thumb" className="h-full object-cover flex-1 opacity-60 pointer-events-none" />
+              <img key={i} src={src || undefined} alt="thumb" className="h-full object-cover flex-1 opacity-60 pointer-events-none" />
             ))
           ) : (
             <div className="w-full h-full flex items-center justify-center text-[10px] text-[#9b8f7f]">Memuat frame...</div>

@@ -52,7 +52,7 @@ export default function TopNavBar({ activeTab, onChangeTab, settings, isAdminLog
             className="flex items-center gap-2 cursor-pointer group"
           >
             {settings.logo ? (
-              <img src={settings.logo} alt="Logo" className="h-8 object-contain" />
+              <img src={settings.logo || undefined} alt="Logo" className="h-8 object-contain" />
             ) : (
               <span className="font-display text-lg sm:text-2xl font-extrabold tracking-wider text-[#eae1d8] group-hover:text-[#f6c374] transition-colors">
                 {settings.site_name || "GALERI EMKA"}

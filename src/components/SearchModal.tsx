@@ -56,9 +56,9 @@ export default function SearchModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
 
-  // Activity lookup map
+  // Activity (Category) lookup map
   const activityMap = useMemo(() => {
-    return new Map(activities.map((a) => [a.id, a]));
+    return new Map(activities.map((a) => [String(a.id), a]));
   }, [activities]);
 
   // Extract all available years dynamically from activities & photos
@@ -66,7 +66,7 @@ export default function SearchModal({
     const yearsSet = new Set<string>();
 
     activities.forEach((act) => {
-      if (act.date) {
+      if (act.date && act.date !== "0000-00-00") {
         const y = new Date(act.date).getFullYear();
         if (!isNaN(y) && y > 2000 && y < 2100) yearsSet.add(y.toString());
       }
@@ -81,6 +81,10 @@ export default function SearchModal({
         const y = new Date(p.created_at).getFullYear();
         if (!isNaN(y) && y > 2000 && y < 2100) yearsSet.add(y.toString());
       }
+      if ((p as any).event_date && (p as any).event_date !== "0000-00-00") {
+        const y = new Date((p as any).event_date).getFullYear();
+        if (!isNaN(y) && y > 2000 && y < 2100) yearsSet.add(y.toString());
+      }
     });
 
     const sorted = Array.from(yearsSet).sort((a, b) => parseInt(b) - parseInt(a));
@@ -91,7 +95,8 @@ export default function SearchModal({
   const availableCategories = useMemo(() => {
     const catSet = new Set<string>();
     activities.forEach((a) => {
-      if (a.category && a.category.trim()) catSet.add(a.category.trim());
+      const catName = a.category || a.title;
+      if (catName && catName.trim()) catSet.add(catName.trim());
     });
     return ["Semua", ...Array.from(catSet)];
   }, [activities]);
@@ -108,8 +113,6 @@ export default function SearchModal({
     const query = searchTerm.toLowerCase().trim();
 
     return activities.filter((act) => {
-      if (act.status !== "published") return false;
-
       // Year filter
       if (selectedYear !== "Semua") {
         const actYear = getYearFromDate(act.date) || getYearFromDate(act.created_at);
@@ -138,11 +141,10 @@ export default function SearchModal({
     const query = searchTerm.toLowerCase().trim();
 
     return photos.filter((photo) => {
-      const parentAct = activityMap.get(photo.activity_id);
-      if (parentAct && parentAct.status !== "published") return false;
-
+      const parentAct = activityMap.get(String(photo.category_id));
+      
       const actYear = parentAct ? getYearFromDate(parentAct.date) : "";
-      const photoYear = getYearFromDate(photo.created_at) || actYear;
+      const photoYear = getYearFromDate(photo.created_at) || getYearFromDate((photo as any).event_date) || actYear;
 
       // Year filter
       if (selectedYear !== "Semua" && photoYear !== selectedYear) {
@@ -160,13 +162,11 @@ export default function SearchModal({
       const titleMatch = (photo.title || "").toLowerCase().includes(query);
       const actTitleMatch = parentAct ? parentAct.title.toLowerCase().includes(query) : false;
       const actCatMatch = parentAct ? parentAct.category.toLowerCase().includes(query) : false;
-      const actDescMatch = parentAct ? parentAct.description.toLowerCase().includes(query) : false;
       const yearMatch = photoYear.includes(query);
 
-      return titleMatch || actTitleMatch || actCatMatch || actDescMatch || yearMatch;
+      return titleMatch || actTitleMatch || actCatMatch || yearMatch;
     });
   }, [photos, activityMap, searchTerm, selectedYear, selectedCategory]);
-
   const totalResults = filteredActivities.length + filteredPhotos.length;
 
   if (!isOpen) return null;
@@ -363,11 +363,15 @@ export default function SearchModal({
                         >
                           <div className="w-20 h-20 shrink-0 rounded-sm overflow-hidden relative bg-black">
                             <img
-                              src={act.cover_image}
+                              src={act.cover_image || undefined}
                               alt={act.title}
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                               referrerPolicy="no-referrer"
-                            />
+            onError={(e) => {
+              console.error("Image failed to load in SearchModal.tsx");
+              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+            }}
+          />
                           </div>
                           <div className="flex-1 min-w-0 space-y-1">
                             <span className="text-[9px] font-subheading tracking-wider uppercase text-[#f6c374] block truncate">
@@ -410,11 +414,15 @@ export default function SearchModal({
                             className="group relative aspect-square rounded-sm overflow-hidden border border-[#4f4538]/20 bg-[#110e09] cursor-pointer hover:border-[#f6c374]/50 transition-all"
                           >
                             <img
-                              src={photo.image_url}
+                              src={photo.image_url || undefined}
                               alt={photo.title || ""}
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                               referrerPolicy="no-referrer"
-                            />
+            onError={(e) => {
+              console.error("Image failed to load in SearchModal.tsx");
+              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+            }}
+          />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-2.5 flex flex-col justify-end">
                               <span className="font-display text-xs text-[#eae1d8] font-bold line-clamp-1">
                                 {photo.title || parent?.title || "Foto Dokumentasi"}

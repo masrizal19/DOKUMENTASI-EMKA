@@ -12,7 +12,6 @@ import Lightbox from "./components/Lightbox.js";
 import SearchModal from "./components/SearchModal.js";
 import Notification from "./components/Notification.js";
 import { Calendar, Tag, Shield, Clock, BookOpen, MapPin, Mail, Phone, ExternalLink, Loader2 } from "lucide-react";
-import { supabase } from "./lib/supabase.js";
 import { fallbackData } from "./lib/fallbackData.js";
 import { getAdminSession, isAdminAuthenticated, performAdminLogout } from "./lib/adminAuth.js";
 
@@ -89,49 +88,40 @@ export default function App() {
         } catch (_) {}
       }
 
-      // 1. Fetch site settings with timeout
-      const settingsPromise = supabase
-        .from("site_settings")
-        .select("id, school_name, address, email, phone, whatsapp, about, vision, mission, about_image, updated_at")
-        .limit(1)
-        .maybeSingle();
-
+      const API_BASE_URL = `${(import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id"}/api`;
+      const settingsPromise = fetch(`${API_BASE_URL}/settings.php`).then(res => {
+        if (!res.ok) throw new Error("Settings API failed");
+        return res.json();
+      }).catch(() => null);
+      
       const settingsResult = await fetchWithTimeout(settingsPromise, 8000);
       
       let activeSet: Settings | null = null;
-      if (settingsResult && settingsResult.data) {
-        const settingsData = settingsResult.data as any;
-        let raw: any = {};
-        if (settingsData.about_image) {
-          try {
-            raw = JSON.parse(settingsData.about_image);
-          } catch (e) {
-            console.error("Failed to parse settings JSON from about_image:", e);
-          }
-        }
+      if (settingsResult && settingsResult.success && settingsResult.data) {
+        const raw = settingsResult.data as any;
         activeSet = {
           site_name: raw.site_name || "GALERI EMKA",
           logo: raw.logo || "",
-          whatsapp: settingsData.whatsapp || raw.whatsapp || "628123456789",
+          whatsapp: raw.whatsapp || "628123456789",
           accent_color: raw.accent_color || "#f6c374",
-          updated_at: settingsData.updated_at || raw.updated_at || new Date().toISOString(),
-          school_name: settingsData.school_name || raw.school_name || "SMK Multi Karya",
-          address: settingsData.address || raw.address || "Jl. SMK Multi Karya No. 45",
+          updated_at: raw.updated_at || new Date().toISOString(),
+          school_name: raw.school_name || "SMK Multi Karya",
+          address: raw.address || "Jl. SMK Multi Karya No. 45",
           city: raw.city || "Medan",
           province: raw.province || "Sumatera Utara",
           country: raw.country || "Indonesia",
-          email: settingsData.email || raw.email || "info@multikarya.sch.id",
-          phone: settingsData.phone || raw.phone || "(061) 1234567",
+          email: raw.email || "info@multikarya.sch.id",
+          phone: raw.phone || "(061) 1234567",
           tata_usaha: raw.tata_usaha || "Senin - Sabtu",
           whatsapp_title: raw.whatsapp_title || "Narahubung Cepat",
           whatsapp_description: raw.whatsapp_description || "Hubungi admin secara langsung melalui WhatsApp.",
           about_title: raw.about_title || "Mengabadikan Jejak, Mengukir Kenangan Sinematik",
-          about_desc1: settingsData.about || raw.about_desc1 || "Galeri EMKA adalah wadah dokumentasi visual.",
+          about_desc1: raw.about_desc1 || "Galeri EMKA adalah wadah dokumentasi visual.",
           about_desc2: raw.about_desc2 || "Kami tidak hanya mengambil foto.",
           about_photo: raw.about_photo || "",
-          vision_title: settingsData.vision || raw.vision_title || "Visi & Seni Visual",
+          vision_title: raw.vision_title || "Visi & Seni Visual",
           vision_content: raw.vision_content || "Menjadi pusat dokumentasi visual sekolah.",
-          missions: (settingsData.mission ? settingsData.mission.split("\n") : null) || raw.missions || [],
+          missions: raw.missions || [],
           hero_label: raw.hero_label || "DOKUMENTASI SINEMATIK",
           hero_title: raw.hero_title || "GALERI EMKA",
           hero_description: raw.hero_description || "Elevating School Memories into Fine-Art Archives.",
@@ -154,42 +144,39 @@ export default function App() {
         };
       }
 
-      // 2. Fetch activities with timeout
-      const activitiesPromise = supabase
-        .from("activities")
-        .select("*")
-        .order("date", { ascending: false });
+      // 2. Fetch categories with timeout
+      const apiUrl = (import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id";
+      const activitiesPromise = fetch(`${apiUrl}/api/categories.php`).then(res => res.json());
 
       const activitiesResult = await fetchWithTimeout(activitiesPromise, 8000);
 
-      if (activitiesResult?.error) {
-        console.error("PUBLIC ACTIVITIES FETCH ERROR", activitiesResult.error);
+      if (!activitiesResult?.success && activitiesResult?.error) {
+        console.error("PUBLIC CATEGORIES FETCH ERROR", activitiesResult.error);
       }
 
       let mappedActivities: Activity[] = [];
-      if (activitiesResult && activitiesResult.data && !activitiesResult.error) {
-        mappedActivities = (activitiesResult.data as any[]).map(row => ({
-          id: row.id,
-          title: row.title,
-          slug: row.slug,
-          category: row.category,
-          date: row.date,
-          description: row.description,
-          cover_image: row.cover_image,
+      if (activitiesResult && activitiesResult.success && activitiesResult.data) {
+        mappedActivities = (activitiesResult.data as any[]).map((row: any) => ({
+          id: String(row.id),
+          title: row.name || row.title || "Kategori Tanpa Nama",
+          slug: row.slug || (row.name || row.title || "").toLowerCase().replace(/\s+/g, '-') || `cat-${row.id}`,
+          category: row.name || row.category || "Lainnya",
+          date: row.date || row.event_date || "0000-00-00",
+          description: row.description || `Dokumentasi untuk kategori ${row.name || row.title || "ini"}.`,
+          cover_image: row.cover_image || "",
           background_image: row.background_image || "",
           background_video: row.background_video || "",
           background_video_start: row.background_video_start || 0,
           background_video_end: row.background_video_end || null,
           background_video_loop: row.background_video_loop !== false,
           google_drive_url: row.google_drive_url || null,
-          status: (row.published === true || String(row.published) === "true" || row.status === "published") ? "published" : "draft",
-          created_at: row.created_at,
-          updated_at: row.updated_at
+          status: "published", // Categories are generally always published in this new structure
+          created_at: row.created_at || new Date().toISOString(),
+          updated_at: row.updated_at || new Date().toISOString()
         }));
       }
 
       // 3. Fetch photos/media from PHP API with timeout
-      const apiUrl = (import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id";
       const photosPromise = fetch(`${apiUrl}/api/photos.php`).then(res => res.json());
 
       const photosResult = await fetchWithTimeout(photosPromise, 8000);
@@ -200,19 +187,24 @@ export default function App() {
 
       let mappedPhotos: Photo[] = [];
       if (photosResult && photosResult.success && photosResult.data) {
-        mappedPhotos = (photosResult.data as any[]).map(row => ({
-          id: row.id,
-          activity_id: row.category_id, // Map PHP category_id to activity_id
-          title: row.title || row.description || "",
+        console.log("PHP API Photos Response:", photosResult.data);
+        mappedPhotos = (photosResult.data as any[]).map((row: any) => ({
+          id: String(row.id),
+          category_id: String(row.category_id),
+          activity_id: String(row.category_id), // Kept for backward compatibility
+          title: row.title || row.description || "Foto Galeri",
           image_url: row.image_url,
+          description: row.description || "",
+          event_date: row.event_date || "0000-00-00",
           sort_order: parseInt(row.display_order) || 0,
-          created_at: row.created_at,
-          updated_at: row.updated_at
+          is_featured: String(row.is_featured) === "1" || row.is_featured === true,
+          created_at: row.created_at || new Date().toISOString(),
+          updated_at: row.updated_at || new Date().toISOString()
         }));
       }
 
       // If we got valid fresh data, update states and caching
-      if (activitiesResult && activitiesResult.data && !activitiesResult.error && Array.isArray(activitiesResult.data)) {
+      if (activitiesResult && activitiesResult.success && Array.isArray(activitiesResult.data)) {
         setActivities(mappedActivities);
         sessionStorage.setItem("emka_cached_activities", JSON.stringify(mappedActivities));
       }
@@ -257,22 +249,6 @@ export default function App() {
   useEffect(() => {
     fetchPublicData();
     checkAdminSession();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("[AUTH CHANGE]", event, "session active:", !!session);
-      if (session && session.user) {
-        setIsAdminLoggedIn(true);
-        setAdminToken(session.access_token);
-      } else {
-        setIsAdminLoggedIn(false);
-        setAdminToken(null);
-      }
-      setIsAuthLoading(false);
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
   }, []);
 
   // 3. Hash & Path Routing listener & Global Search shortcut
@@ -497,7 +473,7 @@ export default function App() {
                             >
                               <div className="aspect-[4/5] w-full overflow-hidden relative">
                                 <img
-                                  src={act.cover_image}
+                                  src={act.cover_image || undefined}
                                   alt={act.title}
                                   className="w-full h-full object-cover group-hover:scale-105 transition-cinematic duration-700"
                                   referrerPolicy="no-referrer"
@@ -589,7 +565,7 @@ export default function App() {
                               className="group relative aspect-[4/3] rounded-sm overflow-hidden border border-[#4f4538]/10 bg-[#110e09] cursor-pointer hover:border-[#f6c374]/30 transition-all duration-500 shadow-md"
                             >
                               <img
-                                src={photo.image_url}
+                                src={photo.image_url || undefined}
                                 alt={photo.title || ""}
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                                 referrerPolicy="no-referrer"
@@ -639,7 +615,7 @@ export default function App() {
                               className="group relative aspect-square rounded-sm overflow-hidden border border-[#4f4538]/10 bg-[#110e09] cursor-pointer hover:border-[#f6c374]/30 transition-all duration-500 shadow-md"
                             >
                               <img
-                                src={photo.image_url}
+                                src={photo.image_url || undefined}
                                 alt={photo.title || ""}
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                                 referrerPolicy="no-referrer"
@@ -674,7 +650,7 @@ export default function App() {
                           </div>
                           <div className="relative aspect-video rounded-sm overflow-hidden border border-[#4f4538]/20 bg-[#110e09] shadow-2xl">
                             <img
-                              src={activeSettings.about_photo || "https://lh3.googleusercontent.com/aida-public/AB6AXuDUIWUTpU9L6rWIPSvj7HHxKYp5MyIlSXwvEsqL-tW6v6GfCLvaaEffEXHfQ77mBbEYaZw1BF3EcDHw0lOCi5vW8MPkBpT22H3x8wdiXxzETSwxlrZB068547LOB_u9sqAfel2p41Lf2y-thR-6B9PHMWL6KgNu3a67v3J4MedZhF3Z_AbGLjnFAL4hHkRJf073lHOcFkWpyu4J-Tiw3LXR5B4Q-bVLUczAQy718Z_UqhyfJvg9M2AT"}
+                              src={activeSettings.about_photo || "https://lh3.googleusercontent.com/aida-public/AB6AXuDUIWUTpU9L6rWIPSvj7HHxKYp5MyIlSXwvEsqL-tW6v6GfCLvaaEffEXHfQ77mBbEYaZw1BF3EcDHw0lOCi5vW8MPkBpT22H3x8wdiXxzETSwxlrZB068547LOB_u9sqAfel2p41Lf2y-thR-6B9PHMWL6KgNu3a67v3J4MedZhF3Z_AbGLjnFAL4hHkRJf073lHOcFkWpyu4J-Tiw3LXR5B4Q-bVLUczAQy718Z_UqhyfJvg9M2AT" || undefined}
                               alt="About Visual"
                               className="w-full h-full object-cover opacity-80"
                               referrerPolicy="no-referrer"
@@ -847,7 +823,7 @@ export default function App() {
               </div>
               <div className="relative aspect-video rounded-sm overflow-hidden border border-[#4f4538]/20 bg-[#110e09] shadow-2xl">
                 <img
-                  src={activeSettings.about_photo || "https://lh3.googleusercontent.com/aida-public/AB6AXuDUIWUTpU9L6rWIPSvj7HHxKYp5MyIlSXwvEsqL-tW6v6GfCLvaaEffEXHfQ77mBbEYaZw1BF3EcDHw0lOCi5vW8MPkBpT22H3x8wdiXxzETSwxlrZB068547LOB_u9sqAfel2p41Lf2y-thR-6B9PHMWL6KgNu3a67v3J4MedZhF3Z_AbGLjnFAL4hHkRJf073lHOcFkWpyu4J-Tiw3LXR5B4Q-bVLUczAQy718Z_UqhyfJvg9M2AT"}
+                  src={activeSettings.about_photo || "https://lh3.googleusercontent.com/aida-public/AB6AXuDUIWUTpU9L6rWIPSvj7HHxKYp5MyIlSXwvEsqL-tW6v6GfCLvaaEffEXHfQ77mBbEYaZw1BF3EcDHw0lOCi5vW8MPkBpT22H3x8wdiXxzETSwxlrZB068547LOB_u9sqAfel2p41Lf2y-thR-6B9PHMWL6KgNu3a67v3J4MedZhF3Z_AbGLjnFAL4hHkRJf073lHOcFkWpyu4J-Tiw3LXR5B4Q-bVLUczAQy718Z_UqhyfJvg9M2AT" || undefined}
                   alt="Philosophy Visual"
                   className="w-full h-full object-cover opacity-80"
                   referrerPolicy="no-referrer"

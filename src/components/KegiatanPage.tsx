@@ -226,11 +226,15 @@ export default function KegiatanPage({ activities, photos, onViewActivity }: Keg
                     {/* Cover Photo */}
                     <div className="aspect-[4/5] w-full overflow-hidden relative">
                       <img
-                        src={act.cover_image}
+                        src={act.cover_image || undefined}
                         alt={act.title}
                         className="w-full h-full object-cover group-hover:scale-105 transition-cinematic duration-700"
                         referrerPolicy="no-referrer"
-                      />
+            onError={(e) => {
+              console.error("Image failed to load in KegiatanPage.tsx");
+              (e.target as HTMLImageElement).src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+            }}
+          />
                       <div className="absolute inset-0 bg-gradient-to-t from-[#110e09] via-transparent to-transparent opacity-80" />
                       
                       {/* Floating Category Tag */}
