@@ -323,14 +323,17 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
                 className="w-full h-full object-cover filter brightness-[0.22] transform scale-[1.08]"
                 style={{ filter: `brightness(0.22) blur(${blurPx}px)` }}
                 referrerPolicy="no-referrer"
-            onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
-                console.error("Image failed to load in HeroCarousel (Background):", act.cover_image);
-                target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
-              }
-            }}
-          />
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  console.log('[IMAGE DEBUG] IMAGE LOAD FAILED:', {
+                    url: target.src,
+                    component: 'HeroCarousel (Background)'
+                  });
+                  if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
+                    target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
+                  }
+                }}
+              />
 
               {/* Background video layer */}
               {act.background_video && (
@@ -456,8 +459,11 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
                     referrerPolicy="no-referrer"
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
+                      console.log('[IMAGE DEBUG] IMAGE LOAD FAILED:', {
+                        url: target.src,
+                        component: 'HeroCarousel (Foreground)'
+                      });
                       if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
-                        console.error("Image failed to load in HeroCarousel (Foreground):", act.cover_image);
                         target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
                       }
                     }}
@@ -518,17 +524,6 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
                     >
                       <Eye className="w-3.5 h-3.5" /> LIHAT DOKUMENTASI
                     </button>
-                  )}
-
-                  {currentActivity.google_drive_url && (
-                    <a
-                      href={currentActivity.google_drive_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="bg-[#110e09]/90 border border-white/10 hover:bg-[#eae1d8] hover:text-[#110e09] text-[#eae1d8] font-subheading text-[10px] sm:text-[11px] tracking-widest uppercase py-2.5 px-6 rounded-sm font-semibold transition-all duration-300 flex items-center gap-2 cursor-pointer shadow-lg hover:scale-105 active:scale-95"
-                    >
-                      <FolderOpen className="w-3.5 h-3.5 text-[#f6c374]" /> LIHAT SEMUA FOTO
-                    </a>
                   )}
                 </div>
               </motion.div>

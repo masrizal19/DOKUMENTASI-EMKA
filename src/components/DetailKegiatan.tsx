@@ -183,21 +183,8 @@ export default function DetailKegiatan({
               {activity.description}
             </p>
 
-            {/* Actions: Ambil Foto Di Sini */}
+            {/* Actions */}
             <div className="pt-4 flex flex-wrap gap-4 items-center relative">
-              {activity.google_drive_url && (
-                <a
-                  href={activity.google_drive_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="bg-[#d8a85c] hover:bg-[#eae1d8] hover:scale-[1.02] active:scale-95 text-[#110e09] font-subheading text-[11px] sm:text-xs tracking-widest uppercase py-3.5 px-6 sm:px-8 rounded-sm font-bold transition-all duration-[350ms] flex items-center gap-2 cursor-pointer shadow-lg hover:brightness-110 hover:shadow-2xl select-none"
-                  style={{ minHeight: "44px" }}
-                >
-                  <Camera className="w-4 h-4" />
-                  <span className="hidden sm:inline">AMBIL FOTO DISINI</span>
-                  <span className="inline sm:hidden">AMBIL FOTO</span>
-                </a>
-              )}
             </div>
           </motion.div>
         </div>
@@ -248,7 +235,7 @@ export default function DetailKegiatan({
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
                     if (target.src !== "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found") {
-                      console.error("Photo image failed to load in DetailKegiatan:", photo.image_url);
+                      console.error("Photo image failed to load in DetailKegiatan:", target.src);
                       target.src = "https://placehold.co/600x400/110e09/4f4538?text=Image+Not+Found";
                     }
                   }}

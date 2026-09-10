@@ -15,6 +15,7 @@ import { Calendar, Tag, Shield, Clock, BookOpen, MapPin, Mail, Phone, ExternalLi
 import { fallbackData } from "./lib/fallbackData.js";
 import { resolveImageUrl } from "./lib/storage.js";
 import { getAdminSession, isAdminAuthenticated, performAdminLogout } from "./lib/adminAuth.js";
+import { fetchPhotos, fetchCategories, fetchSettings } from "./lib/api.js";
 
 export default function App() {
   // Public data state
@@ -48,35 +49,12 @@ export default function App() {
     setToast({ message, type });
   };
 
-  const API_BASE_URL = `${(import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id"}/api`;
-
   // 1. Fetch public data with timeout and caching
   const fetchPublicData = async () => {
     setIsFetchingData(true);
-    
-    // Helper to run promise with timeout
-    async function fetchWithTimeout(promise: any, timeoutMs = 8000): Promise<any> {
-      let timeoutId: any;
-      const timeoutPromise = new Promise<null>((resolve) => {
-        timeoutId = setTimeout(() => {
-          console.warn(`Supabase request timed out after ${timeoutMs}ms`);
-          resolve(null);
-        }, timeoutMs);
-      });
-      
-      try {
-        const result = await Promise.race([promise, timeoutPromise]);
-        clearTimeout(timeoutId);
-        return result;
-      } catch (err) {
-        clearTimeout(timeoutId);
-        console.error("Supabase query failed:", err);
-        return null;
-      }
-    }
 
     try {
-      // Try to load cached data from sessionStorage for lightning-fast subsequent loads
+      // Try to load cached data from sessionStorage for fast initial render
       const cachedActivities = sessionStorage.getItem("emka_cached_activities");
       const cachedPhotos = sessionStorage.getItem("emka_cached_photos");
       const cachedSettings = sessionStorage.getItem("emka_cached_settings");
@@ -87,21 +65,19 @@ export default function App() {
           setPhotos(JSON.parse(cachedPhotos));
           setSettings(JSON.parse(cachedSettings));
           setIsFetchingData(false);
-          // We still fetch fresh data in background silently
         } catch (_) {}
       }
 
-      const API_BASE_URL = `${(import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id"}/api`;
-      const settingsPromise = fetch(`${API_BASE_URL}/settings.php`).then(res => {
-        if (!res.ok) throw new Error("Settings API failed");
-        return res.json();
-      }).catch(() => null);
-      
-      const settingsResult = await fetchWithTimeout(settingsPromise, 8000);
-      
+      // Fetch in parallel via centralized API
+      const [settingsRes, categoriesRes, photosRes] = await Promise.all([
+        fetchSettings().catch(() => ({ data: null, error: null })),
+        fetchCategories().catch(() => ({ data: null, error: null })),
+        fetchPhotos().catch(() => ({ data: null, error: null })),
+      ]);
+
       let activeSet: Settings | null = null;
-      if (settingsResult && settingsResult.success && settingsResult.data) {
-        const raw = settingsResult.data as any;
+      if (settingsRes?.data?.success && settingsRes.data.data) {
+        const raw = settingsRes.data.data as any;
         activeSet = {
           site_name: raw.site_name || "GALERI EMKA",
           logo: raw.logo || "",
@@ -147,19 +123,10 @@ export default function App() {
         };
       }
 
-      // 2. Fetch categories with timeout
-      const apiUrl = (import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id";
-      const activitiesPromise = fetch(`${apiUrl}/api/categories.php`).then(res => res.json());
-
-      const activitiesResult = await fetchWithTimeout(activitiesPromise, 8000);
-
-      if (!activitiesResult?.success && activitiesResult?.error) {
-        console.error("PUBLIC CATEGORIES FETCH ERROR", activitiesResult.error);
-      }
-
+      // Map Categories -> Activities
       let mappedActivities: Activity[] = [];
-      if (activitiesResult && activitiesResult.success && activitiesResult.data) {
-        mappedActivities = (activitiesResult.data as any[]).map((row: any) => ({
+      if (categoriesRes?.data?.success && Array.isArray(categoriesRes.data.data)) {
+        mappedActivities = (categoriesRes.data.data as any[]).map((row: any) => ({
           id: String(row.id),
           title: row.name || row.title || "Kategori Tanpa Nama",
           slug: row.slug || (row.name || row.title || "").toLowerCase().replace(/\s+/g, '-') || `cat-${row.id}`,
@@ -179,24 +146,13 @@ export default function App() {
         }));
       }
 
-      console.log('[GALERI DEBUG] categories:', mappedActivities);
-
-      // 3. Fetch photos/media from PHP API with timeout
-      const photosPromise = fetch(`${apiUrl}/api/photos.php`).then(res => res.json());
-
-      const photosResult = await fetchWithTimeout(photosPromise, 8000);
-
-      if (!photosResult?.success && photosResult?.error) {
-        console.error("PUBLIC PHOTOS FETCH ERROR", photosResult.error);
-      }
-
+      // Map Photos
       let mappedPhotos: Photo[] = [];
-      if (photosResult && photosResult.success && photosResult.data) {
-        console.log('[GALERI DEBUG] photos:', photosResult.data);
-        mappedPhotos = (photosResult.data as any[]).map((row: any) => ({
+      if (photosRes?.data?.success && Array.isArray(photosRes.data.data)) {
+        mappedPhotos = (photosRes.data.data as any[]).map((row: any) => ({
           id: String(row.id),
           category_id: String(row.category_id || ""),
-          activity_id: String(row.category_id || ""), // Kept for compatibility
+          activity_id: String(row.category_id || ""),
           title: row.title || row.description || "Foto Galeri",
           image_url: row.image_url,
           description: row.description || "",
@@ -206,24 +162,23 @@ export default function App() {
           created_at: row.created_at || new Date().toISOString(),
           updated_at: row.updated_at || new Date().toISOString()
         }));
-        console.log('[GALERI DEBUG] mapped photos:', mappedPhotos);
       }
 
-      // If we got valid fresh data, update states and caching
-      if (activitiesResult && activitiesResult.success && Array.isArray(activitiesResult.data)) {
+      // Update state if fresh data was received
+      if (mappedActivities.length > 0) {
         setActivities(mappedActivities);
         sessionStorage.setItem("emka_cached_activities", JSON.stringify(mappedActivities));
       }
 
-      if (photosResult && photosResult.success && Array.isArray(photosResult.data)) {
+      if (mappedPhotos.length > 0) {
         setPhotos(mappedPhotos);
         sessionStorage.setItem("emka_cached_photos", JSON.stringify(mappedPhotos));
 
-        // IMPROVEMENT: If activity (category) has no cover_image, use the latest photo from that category
-        const updatedActivities = mappedActivities.map(act => {
+        // Auto-assign cover from latest photo if category has no cover
+        const updatedActivities = (mappedActivities.length > 0 ? mappedActivities : activities).map((act) => {
           if (!act.cover_image) {
             const latestPhoto = mappedPhotos
-              .filter(p => String(p.category_id) === String(act.id))
+              .filter((p) => String(p.category_id) === String(act.id))
               .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
             
             if (latestPhoto) {
@@ -232,24 +187,23 @@ export default function App() {
           }
           return act;
         });
-        
-        if (updatedActivities.some((act, idx) => act.cover_image !== mappedActivities[idx].cover_image)) {
-          setActivities(updatedActivities);
-          sessionStorage.setItem("emka_cached_activities", JSON.stringify(updatedActivities));
-        }
+
+        setActivities(updatedActivities);
+        sessionStorage.setItem("emka_cached_activities", JSON.stringify(updatedActivities));
       }
+
       if (activeSet) {
         setSettings(activeSet);
         sessionStorage.setItem("emka_cached_settings", JSON.stringify(activeSet));
       }
     } catch (error) {
-      console.error("Supabase load error, falling back to local data:", error);
+      console.error("[GALERI API] fetchPublicData error:", error);
     } finally {
       setIsFetchingData(false);
     }
   };
 
-  // 2. Auth Guard & Session Check using official Supabase Auth
+  // 2. Auth Guard & Session Check using PHP Auth
   const checkAdminSession = async () => {
     setIsAuthLoading(true);
     try {

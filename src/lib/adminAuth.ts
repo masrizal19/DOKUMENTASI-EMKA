@@ -1,12 +1,12 @@
+import { loginAdmin } from "./api.js";
+
 export interface AdminAuthSession {
   session: { access_token: string };
   user: any;
 }
 
-const API_BASE_URL = `${(import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id"}/api`;
-
 /**
- * Helper terpusat untuk mengambil session
+ * Helper terpusat untuk mengambil session dari localStorage
  */
 export async function getAdminSession(): Promise<AdminAuthSession | null> {
   try {
@@ -15,7 +15,7 @@ export async function getAdminSession(): Promise<AdminAuthSession | null> {
       return null;
     }
     
-    return { session: { access_token: token }, user: { id: "admin", username: "admin" } };
+    return { session: { access_token: token }, user: { id: "admin", username: "ADMIN" } };
   } catch (err) {
     console.error("[ADMIN AUTH] Error getting session:", err);
     return null;
@@ -42,7 +42,7 @@ export async function isAdminAuthenticated(): Promise<boolean> {
 }
 
 /**
- * Perform Admin Login with Username & PIN using API
+ * Perform Admin Login with Username & PIN using PHP API (POST /api/login.php)
  */
 export async function performAdminLogin(
   username: string,
@@ -51,56 +51,35 @@ export async function performAdminLogin(
   const cleanUsername = username.trim();
   
   try {
-    const response = await fetch(`${API_BASE_URL}/login.php`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ 
-        username: cleanUsername, 
-        email: cleanUsername, // Send both to be compatible with whatever the PHP script expects
-        password: pin 
-      }),
-    });
+    const { data, error } = await loginAdmin(cleanUsername, pin);
     
-    if (!response.ok) {
-       return { success: false, error: "Gagal menghubungi server login." };
+    if (error || !data) {
+      return {
+        success: false,
+        error: error?.message || data?.message || "Username atau PIN salah.",
+      };
     }
-    
-    const result = await response.json();
-    console.log("[DEBUG] LOGIN API FULL RESPONSE:", result);
-    
-    // API returns nested structure: { response: { success: true, ... } }
-    // We check result.response first, if it doesn't exist we fall back to result
-    const apiResponse = (result && typeof result.response === 'object' && result.response !== null) 
-      ? result.response 
-      : result;
-    
-    console.log("[DEBUG] PARSED API RESPONSE:", apiResponse);
-    
-    if (apiResponse && apiResponse.success === true) {
-      // Use a fixed identifier for the session if no token is provided by the PHP API
-      const sessionToken = apiResponse.token || "emka_session_active";
-      
+
+    if (data.success === true) {
+      const sessionToken = (data as any).token || "emka_session_active";
       localStorage.setItem("emka_admin_token", sessionToken);
-      console.log("[DEBUG] AUTH STATE SAVED TO localStorage: emka_admin_token =", sessionToken);
       
       return {
         success: true,
         session: { access_token: sessionToken },
-        user: apiResponse.data || { id: "admin", username: cleanUsername },
+        user: data.data || { id: "admin", username: cleanUsername },
       };
     } else {
-      console.warn("[DEBUG] LOGIN FAILED ACCORDING TO API:", apiResponse?.message || "Unknown error");
       return {
         success: false,
-        error: apiResponse?.message || "Username atau PIN salah.",
+        error: data.message || "Username atau PIN salah.",
       };
     }
   } catch (err: any) {
+    console.error("[ADMIN AUTH LOGIN ERROR]", err);
     return {
       success: false,
-      error: "Koneksi ke server gagal.",
+      error: "Koneksi ke server gagal. Periksa jaringan internet Anda.",
     };
   }
 }

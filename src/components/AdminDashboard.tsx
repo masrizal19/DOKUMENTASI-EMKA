@@ -27,7 +27,8 @@ import { fallbackData } from "../lib/fallbackData.js";
 import { getAdminSession } from "../lib/adminAuth.js";
 import { ImageCropModal } from "./ImageCropModal.tsx";
 import VideoTrimmer from "./VideoTrimmer.tsx";
-import { getStorageObjectPath, isValidUUID } from "../lib/storage.js";
+import { isValidUUID, resolveImageUrl } from "../lib/storage.js";
+import { fetchPhotos, fetchCategories, deletePhoto, addPhoto, updatePhoto, uploadPhoto } from "../lib/api.js";
 
 interface AdminDashboardProps {
   token: string;
@@ -36,191 +37,23 @@ interface AdminDashboardProps {
   onRefreshData?: () => void;
 }
 
-const API_BASE_URL = `${(import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id"}/api`;
+const getApiBaseUrl = (): string => {
+  const envUrl = ((import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id").trim().replace(/\/+$/, "");
+  return envUrl.endsWith("/api") ? envUrl : `${envUrl}/api`;
+};
+const API_BASE_URL = getApiBaseUrl();
+
 
 /**
  * Normalizes image URLs. If the URL is relative, it prepends the VITE_API_URL.
  * This ensures images from the PHP backend are loaded correctly on different domains.
  */
-const resolveImageUrl = (url: string | null | undefined): string | undefined => {
-  if (!url || typeof url !== 'string') return undefined;
-  const trimmed = url.trim();
-  if (!trimmed) return undefined;
-
-  // If it's already an absolute URL or a special protocol, return as is
-  if (
-    trimmed.startsWith('http://') || 
-    trimmed.startsWith('https://') || 
-    trimmed.startsWith('blob:') || 
-    trimmed.startsWith('data:')
-  ) {
-    return trimmed;
-  }
-
-  // It's a relative path from the PHP server
-  const baseUrl = (import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id";
-  const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-  const cleanUrl = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-  
-  return `${cleanBase}${cleanUrl}`;
-};
+// Removed: Local resolveImageUrl in favor of centralized one
 
 
-const supabase = {
-  auth: {
-    getSession: async () => ({ data: { session: { user: { id: "admin" } } } }),
-    refreshSession: async () => ({ data: { session: { user: { id: "admin" } } } })
-  },
-  storage: {
-    from: (bucket?: string) => ({ remove: async (paths: string[]) => ({ data: null, error: null }) })
-  },
-  rpc: async (name: string, payload: any) => {
-    console.log(`[API REQUEST] RPC: ${name}`, payload);
-    try {
-      if (name === "admin_save_activity") {
-        const method = payload.p_id ? "PUT" : "POST";
-        const body = {
-          id: payload.p_id || null,
-          name: payload.p_title, 
-          category: payload.p_category,
-          event_date: payload.p_date,
-          description: payload.p_description || "",
-          cover_image: payload.p_cover_image || "",
-          background_video: payload.p_background_video || "",
-          status: payload.p_published ? "published" : "draft"
-        };
-        console.log(`[API CALL] ${method} categories.php`, body);
-        const res = await fetch(`${API_BASE_URL}/categories.php`, {
-          method,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body)
-        });
-        const result = await res.json();
-        console.log(`[API RESPONSE] categories.php`, result);
-        return { data: result, error: result.success ? null : new Error(result.message) };
-      }
-      if (name === "admin_delete_activity") {
-        console.log(`[API CALL] DELETE categories.php?id=${payload.p_id}`);
-        const res = await fetch(`${API_BASE_URL}/categories.php?id=${payload.p_id}`, {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" }
-        });
-        const result = await res.json();
-        console.log(`[API RESPONSE] categories.php`, result);
-        return { data: result, error: result.success ? null : new Error(result.message) };
-      }
-      if (name === "admin_save_settings") {
-        console.log(`[API CALL] POST settings.php`, payload);
-        const res = await fetch(`${API_BASE_URL}/settings.php`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        const result = await res.json();
-        console.log(`[API RESPONSE] settings.php`, result);
-        return { data: result, error: result.success ? null : new Error(result.message) };
-      }
-    } catch(e: any) {
-      console.error(`[API ERROR] ${name}:`, e);
-      return { error: e };
-    }
-    return { data: null, error: null };
-  },
-  from: (table: string) => {
-    let _eqField: string | null = null;
-    let _eqValue: string | null = null;
-    
-    const obj: any = {
-      select: (fields?: string) => obj,
-      single: async () => ({ data: null, error: null }),
-      maybeSingle: async () => ({ data: null, error: null }),
-      order: (field: string, options?: any) => obj,
-      limit: (count: number) => obj,
-      range: (from: number, to: number) => obj,
-      eq: (field: string, val: any) => {
-        _eqField = field;
-        _eqValue = val;
-        return obj;
-      },
-      then: (onfulfilled?: (value: any) => any) => {
-        return Promise.resolve({ data: null, error: null }).then(onfulfilled);
-      },
-      delete: () => {
-        if (table === "activities" && _eqField === "id") {
-           // handled by RPC in the code
-        }
-        if (table === "activity_media" && _eqField === "id" && _eqValue) {
-           fetch(`${API_BASE_URL}/photos.php`, {
-             method: "DELETE",
-             headers: { "Content-Type": "application/json" },
-             body: JSON.stringify({ id: _eqValue })
-           }).catch(() => null);
-        }
-        return obj;
-      },
-      update: (payload: any) => {
-        if (table === "activities" && _eqField === "id" && _eqValue) {
-           // This is used for setting cover image!
-           if ("cover_image" in payload) {
-             console.log(`[API CALL] PUT categories.php (Cover Update)`, { id: _eqValue, cover_image: payload.cover_image });
-             fetch(`${API_BASE_URL}/categories.php`, {
-               method: "PUT",
-               headers: { "Content-Type": "application/json" },
-               body: JSON.stringify({ id: _eqValue, cover_image: payload.cover_image })
-             }).then(r => r.json()).then(res => {
-               console.log(`[API RESPONSE] categories.php`, res);
-             }).catch(err => {
-               console.error(`[API ERROR] categories.php`, err);
-             });
-           }
-        }
-        if (table === "activity_media" && _eqField === "id" && _eqValue) {
-           const body = {
-             id: _eqValue,
-             category_id: payload.activity_id,
-             title: payload.caption || payload.title || "",
-             image_url: payload.url || payload.image_url || "",
-             display_order: payload.sort_order || 0
-           };
-           console.log(`[API CALL] PUT photos.php`, body);
-           fetch(`${API_BASE_URL}/photos.php`, {
-             method: "PUT",
-             headers: { "Content-Type": "application/json" },
-             body: JSON.stringify(body)
-           }).then(r => r.json()).then(res => {
-             console.log(`[API RESPONSE] photos.php`, res);
-           }).catch(err => {
-             console.error(`[API ERROR] photos.php`, err);
-           });
-        }
-        return obj;
-      },
-      insert: (arr: any[]) => {
-        if (table === "activity_media" && arr.length > 0) {
-           const payload = arr[0];
-           console.log(`[API CALL] POST add-photo.php`, payload);
-           fetch(`${API_BASE_URL}/add-photo.php`, {
-             method: "POST",
-             headers: { "Content-Type": "application/json" },
-             body: JSON.stringify({
-               category_id: payload.activity_id,
-               title: payload.caption || payload.title || "",
-               image_url: payload.url || payload.image_url || "",
-               display_order: payload.sort_order || 0
-             })
-           }).then(r => r.json()).then(res => {
-             console.log(`[API RESPONSE] add-photo.php`, res);
-           }).catch(err => {
-             console.error(`[API ERROR] add-photo.php`, err);
-           });
-        }
-        return obj;
-      },
-      upsert: (payload: any) => obj
-    };
-    return obj;
-  }
-};
+
+// API interaction moved to src/lib/api.ts
+
 
 
 export default function AdminDashboard({
@@ -461,15 +294,10 @@ export default function AdminDashboard({
       }
 
       // Fetch activities from PHP API
-      const apiUrl =
-        (import.meta as any).env.VITE_API_URL || "https://api.mkverse.my.id";
-      const actRes = await fetch(`${apiUrl}/api/categories.php`).catch(
-        () => null,
-      );
-      const actData = actRes ? await actRes.json().catch(() => null) : null;
+      const { data: actData, error: actErr } = await fetchCategories();
 
       let mappedActivities: Activity[] = [];
-      if (actData && actData.success && actData.data) {
+      if (!actErr && actData && actData.success && actData.data) {
         mappedActivities = (actData.data as any[]).map((row: any) => ({
           id: String(row.id),
           title: row.name || row.title || "",
@@ -493,15 +321,10 @@ export default function AdminDashboard({
       }
 
       // Fetch photos/media from PHP API
-      const photosRes = await fetch(`${apiUrl}/api/photos.php`).catch(
-        () => null,
-      );
-      const photosData = photosRes
-        ? await photosRes.json().catch(() => null)
-        : null;
+      const { data: photosData, error: photoErr } = await fetchPhotos();
 
       let mappedPhotos: Photo[] = [];
-      if (photosData && photosData.success && photosData.data) {
+      if (!photoErr && photosData && photosData.success && photosData.data) {
         mappedPhotos = (photosData.data as any[]).map((row: any) => ({
           id: String(row.id),
           category_id: String(row.category_id || ""),
@@ -547,7 +370,7 @@ export default function AdminDashboard({
       }
     } catch (err) {
       onShowToast(
-        "Kesalahan saat menyinkronkan data dengan Supabase.",
+        "Kesalahan saat menyinkronkan data dengan Backend.",
         "error",
       );
     } finally {
@@ -598,25 +421,20 @@ export default function AdminDashboard({
     return null;
   };
 
-  // Supabase Storage upload helper with true error handling, session debugging, and YYYY folders
-  const uploadFileToSupabase = async (
+  // Server Storage upload helper using PHP API (POST /api/upload.php)
+  const uploadFileToServer = async (
     file: File,
-    folder: "images" | "videos",
+    folder: "images" | "videos" = "images",
   ): Promise<string> => {
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch(`${API_BASE_URL}/upload.php`, {
-        method: "POST",
-        body: formData
-      });
-      if (!res.ok) throw new Error("Upload failed");
-      const data = await res.json();
-      if (!data.success) throw new Error(data.message || "Upload failed");
-      return data.image_url;
+      const res = await uploadPhoto(file);
+      if (res.error || !res.url) {
+        throw new Error(res.error?.message || "Gagal mengunggah media");
+      }
+      return res.url;
     } catch (err: any) {
-      console.error("Upload error:", err.message);
-      throw new Error("Gagal mengunggah media");
+      console.error("[UPLOAD ERROR]", err);
+      throw new Error(err?.message || "Gagal mengunggah media");
     }
   };
 
@@ -770,12 +588,12 @@ export default function AdminDashboard({
 
       if (coverFile) {
         setUploadStatusText("Mengunggah gambar...");
-        finalCoverUrl = await uploadFileToSupabase(coverFile, "images");
+        finalCoverUrl = await uploadFileToServer(coverFile, "images");
       }
 
       if (videoFile) {
         setUploadStatusText("Mengunggah video...");
-        finalVideoUrl = await uploadFileToSupabase(videoFile, "videos");
+        finalVideoUrl = await uploadFileToServer(videoFile, "videos");
       }
 
       setUploadStatusText("Menyimpan data kegiatan...");
@@ -822,96 +640,50 @@ export default function AdminDashboard({
         : videoTrimStart;
       const finalVideoEnd = isTrimConfirmed ? confirmedVideoEnd : videoTrimEnd;
 
-      const payload = {
-        p_id: isEditingExisting ? editingActivity.id : null,
-        p_title: activityFormData.title,
-        p_date: activityFormData.date || null,
-        p_category: activityFormData.category || "Kegiatan Sekolah",
-        p_description: activityFormData.description || "",
-        p_cover_image: finalCoverUrl || "",
-        p_background_image: "",
-        p_background_video: finalVideoUrl || null,
-        p_google_drive_url: activityFormData.google_drive_url || null,
-        p_published: activityFormData.status === "published",
-        p_featured: false,
-        p_sort_order: 0,
-        p_username: "ADMIN",
-        p_pin: "1902",
-        p_background_video_start: finalVideoStart,
-        p_background_video_end: finalVideoEnd,
-        p_background_video_loop: videoTrimLoop,
-      };
-
-      const { data: rpcRes, error: rpcErr } = await supabase.rpc(
-        "admin_save_activity",
-        payload,
-      );
-
-      // RPC DEBUG (Step 5)
-      console.log("[RPC DEBUG]", {
-        functionName: "admin_save_activity",
-        errorMessage:
-          rpcErr?.message ||
-          (rpcRes && !rpcRes.success ? rpcRes.message : null),
-        errorCode: rpcErr?.code || null,
-        errorDetails: rpcErr?.details || null,
-        errorHint: rpcErr?.hint || null,
-        success: rpcRes?.success,
+      const method = isEditingExisting ? "PUT" : "POST";
+      const res = await fetch(`${API_BASE_URL}/categories.php`, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: isEditingExisting ? editingActivity.id : null,
+          name: activityFormData.title,
+          category: activityFormData.category || "Kegiatan Sekolah",
+          event_date: activityFormData.date || null,
+          description: activityFormData.description || "",
+          cover_image: finalCoverUrl || "",
+          background_image: "",
+          background_video: finalVideoUrl || null,
+          google_drive_url: activityFormData.google_drive_url || null,
+          status: activityFormData.status === "published" ? "published" : "draft",
+          background_video_start: finalVideoStart,
+          background_video_end: finalVideoEnd,
+          background_video_loop: videoTrimLoop,
+        })
       });
 
-      if (rpcErr || (rpcRes && !rpcRes.success)) {
-        const rawErrorMsg =
-          rpcErr?.message ||
-          rpcErr?.details ||
-          rpcRes?.message ||
-          "Kesalahan tidak diketahui.";
-        console.error("[ADMIN SAVE] RPC error:", rpcErr || rpcRes);
-
-        let displayError = rawErrorMsg;
-        if (
-          rawErrorMsg.includes("JWT expired") ||
-          rawErrorMsg.includes("session expired")
-        ) {
-          displayError = "Session admin telah berakhir. Silakan login kembali.";
-        } else if (
-          rawErrorMsg.includes("Unauthorized") ||
-          rawErrorMsg.includes("Akses ditolak")
-        ) {
-          displayError = "Session admin tidak tersedia. Silakan login kembali.";
-        } else if (
-          rawErrorMsg.includes("PIN salah") ||
-          rawErrorMsg.includes("Autentikasi admin gagal")
-        ) {
-          displayError = "Username atau PIN (Password) salah.";
-        } else if (
-          rawErrorMsg.includes("permission denied") ||
-          rawErrorMsg.includes("row-level security") ||
-          rpcErr?.code === "42501"
-        ) {
-          displayError = "Akses database ditolak.";
-        } else if (rawErrorMsg.includes("function not found")) {
-          displayError =
-            "Fungsi database tidak ditemukan (Function not found).";
-        } else if (rawErrorMsg.includes("invalid input syntax for type uuid")) {
-          displayError = "Format ID tidak valid (Invalid UUID).";
-        }
-
-        onShowToast(`Gagal menyimpan: ${displayError}`, "error");
-      } else {
-        console.log("ACTIVITY SAVED SUCCESSFULLY:", rpcRes?.data);
-        onShowToast(
-          isEditingExisting
-            ? "Kegiatan berhasil diperbarui."
-            : "Kegiatan baru berhasil ditambahkan.",
-          "success",
-        );
-        if (coverPreview) URL.revokeObjectURL(coverPreview);
-        if (videoPreview) URL.revokeObjectURL(videoPreview);
-        setIsActivityFormOpen(false);
-        sessionStorage.removeItem("emka_cached_activities");
-        if (onRefreshData) onRefreshData();
-        fetchData();
+      if (!res.ok) {
+        throw new Error("Respon server tidak valid.");
       }
+
+      const result = await res.json();
+
+      if (!result.success) {
+        throw new Error(result.message || "Gagal menyimpan data kegiatan.");
+      }
+
+      console.log("ACTIVITY SAVED SUCCESSFULLY:", result.data);
+      onShowToast(
+        isEditingExisting
+          ? "Kegiatan berhasil diperbarui."
+          : "Kegiatan baru berhasil ditambahkan.",
+        "success",
+      );
+      if (coverPreview) URL.revokeObjectURL(coverPreview);
+      if (videoPreview) URL.revokeObjectURL(videoPreview);
+      setIsActivityFormOpen(false);
+      sessionStorage.removeItem("emka_cached_activities");
+      if (onRefreshData) onRefreshData();
+      fetchData();
     } catch (err: any) {
       onShowToast(
         err.message ||
@@ -929,126 +701,39 @@ export default function AdminDashboard({
     setIsDeletingActivity(true);
 
     try {
-      const session = token ? { user: { id: "admin" } } : null;
-
-      if (!session || !session.user) {
-        onShowToast(
-          "Session admin tidak tersedia. Silakan login kembali.",
-          "error",
-        );
-        setIsDeletingActivity(false);
-        setActivityToDelete(null);
-        return;
-      }
-
-      // 2. Validate UUID (Requirement B & D)
       const id = activity.id;
-      if (!isValidUUID(id)) {
-        onShowToast("ID kegiatan tidak valid.", "error");
+
+      // 1. Send FormData request to POST /api/delete-photo.php with field 'id'
+      const { data, error } = await deletePhoto(id);
+
+      // 2. Response validation
+      if (error || !data || data.success !== true) {
+        const errMsg = data?.message || error?.message || "Gagal menghapus kegiatan.";
+        onShowToast(errMsg, "error");
         setIsDeletingActivity(false);
         setActivityToDelete(null);
         return;
       }
 
-      // 3. Fetch activity row to get exact media URLs
-      let cover_image = activity.cover_image;
-      let background_image = (activity as any).background_image;
-      let background_video = activity.background_video;
+      // 3. Success response handling:
+      // - Show toast notification
+      const successMsg = data.message || "Kegiatan berhasil dihapus.";
+      onShowToast(successMsg, "success");
 
-      const { data: fetchRow } = await supabase
-        .from("activities")
-        .select("cover_image, background_image, background_video")
-        .eq("id", id)
-        .maybeSingle();
+      // - Remove item from frontend state
+      setActivities((prev) => prev.filter((a) => String(a.id) !== String(id)));
+      setPhotos((prev) => prev.filter((p) => String(p.id) !== String(id) && String(p.category_id) !== String(id) && String(p.activity_id) !== String(id)));
 
-      if (fetchRow) {
-        cover_image = fetchRow.cover_image || cover_image;
-        background_image = fetchRow.background_image || background_image;
-        background_video = fetchRow.background_video || background_video;
-      }
-
-      // 4. Extract storage object paths for 'gallery' bucket (Requirement B & C)
-      const pathsToRemove: string[] = [];
-      const coverPath = getStorageObjectPath(cover_image, "gallery");
-      const bgImagePath = getStorageObjectPath(background_image, "gallery");
-      const bgVideoPath = getStorageObjectPath(background_video, "gallery");
-
-      if (coverPath) pathsToRemove.push(coverPath);
-      if (bgImagePath) pathsToRemove.push(bgImagePath);
-      if (bgVideoPath) pathsToRemove.push(bgVideoPath);
-
-      const uniquePaths = Array.from(new Set(pathsToRemove));
-
-      if (uniquePaths.length > 0) {
-        console.log("[DELETE ACTIVITY] Removing storage files:", uniquePaths);
-        try {
-          await supabase.storage.from("gallery").remove(uniquePaths);
-        } catch (_) {}
-      }
-
-      // 5. Delete activity record from database via RPC admin_delete_activity
-      let deleteSuccess = false;
-      try {
-        const { data: rpcRes, error: rpcErr } = await supabase.rpc(
-          "admin_delete_activity",
-          {
-            p_username: "ADMIN",
-            p_pin: "1902",
-            p_id: id,
-          },
-        );
-        if (!rpcErr && rpcRes && rpcRes.success !== false) {
-          deleteSuccess = true;
-        }
-      } catch (err) {
-        console.warn(
-          "[DELETE ACTIVITY] RPC failed, falling back to direct delete:",
-          err,
-        );
-      }
-
-      if (!deleteSuccess) {
-        const { error: dbErr } = await supabase
-          .from("activities")
-          .delete()
-          .eq("id", id);
-
-        if (dbErr) {
-          console.error("[DELETE ACTIVITY] DB error:", dbErr);
-          const errorMsg = dbErr.message || "";
-          if (
-            errorMsg.includes("permission") ||
-            errorMsg.includes("Policy") ||
-            dbErr.code === "42501"
-          ) {
-            onShowToast(
-              "Anda tidak memiliki izin untuk menghapus kegiatan ini.",
-              "error",
-            );
-          } else if (errorMsg.includes("invalid input syntax for type uuid")) {
-            onShowToast("ID kegiatan tidak valid.", "error");
-          } else {
-            onShowToast(
-              "Gagal menghapus data kegiatan dari database.",
-              "error",
-            );
-          }
-          setIsDeletingActivity(false);
-          setActivityToDelete(null);
-          return;
-        }
-      }
-
-      // Clean up linked rows in activity_media & latest_photos if needed
-
-      onShowToast("Kegiatan dan media terkait berhasil dihapus.", "success");
       setActivityToDelete(null);
       setIsDeletingActivity(false);
       sessionStorage.removeItem("emka_cached_activities");
+      sessionStorage.removeItem("emka_cached_photos");
+
+      // - Reload GET /photos.php so frontend syncs with database
       if (onRefreshData) onRefreshData();
       fetchData();
     } catch (err: any) {
-      console.error("[DELETE ACTIVITY] Exception:", err);
+      console.error("[DELETE ACTIVITY ERROR]", err);
       onShowToast(
         err?.message || "Terjadi kesalahan saat menghapus kegiatan.",
         "error",
@@ -1119,7 +804,7 @@ export default function AdminDashboard({
       return;
     }
 
-    // Ensure active Supabase Auth session before upload & insert
+    // Ensure active admin session before upload & insert
     
 
     const session = token ? { user: { id: "admin" } } : null;
@@ -1136,113 +821,35 @@ export default function AdminDashboard({
     try {
       let finalImageUrl = photoFormData.image_url;
 
-      // If user selected a new file, upload to Supabase Storage bucket 'gallery'
+      // If user selected a new file, upload to PHP API
       if (photoFile) {
-        finalImageUrl = await uploadFileToSupabase(photoFile, "images");
+        const uploadRes = await uploadPhoto(photoFile);
+        if (uploadRes.error || !uploadRes.url) throw new Error(uploadRes.error?.message || "Gagal mengunggah foto");
+        finalImageUrl = uploadRes.url;
       }
 
       if (!finalImageUrl) {
         throw new Error("URL Foto tidak valid.");
       }
 
-      // Safe UUID generation
-      const generateUUID = () => {
-        if (
-          typeof crypto !== "undefined" &&
-          typeof crypto.randomUUID === "function"
-        ) {
-          return crypto.randomUUID();
-        }
-        return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
-          /[xy]/g,
-          function (c) {
-            const r = (Math.random() * 16) | 0;
-            const v = c === "x" ? r : (r & 0x3) | 0x8;
-            return v.toString(16);
-          },
-        );
-      };
-
       const isEditing = !!editingPhoto;
-      const photoId =
-        isEditing && isValidUUID(editingPhoto.id)
-          ? editingPhoto.id
-          : generateUUID();
+      const photoId = isEditing ? editingPhoto.id : Date.now().toString();
 
       const baseDbRow: any = {
-        activity_id: photoFormData.activity_id,
-        type: "image",
-        url: finalImageUrl,
-        caption: photoFormData.title || "",
-        sort_order: photoFormData.sort_order || 0,
+        category_id: photoFormData.activity_id,
+        title: photoFormData.title || "",
+        image_url: finalImageUrl,
+        display_order: photoFormData.sort_order || 0,
       };
 
       if (isEditing) {
         // Authenticated UPDATE
-        const { error: updateErr } = await supabase
-          .from("activity_media")
-          .update({
-            ...baseDbRow,
-            aspect_ratio: photoAspectRatio,
-          })
-          .eq("id", photoId);
-
-        if (updateErr) {
-          // Fallback if aspect_ratio column is not in remote schema
-          const { error: fallbackUpdateErr } = await supabase
-            .from("activity_media")
-            .update(baseDbRow)
-            .eq("id", photoId);
-
-          if (fallbackUpdateErr) {
-            throw new Error(
-              fallbackUpdateErr.message ||
-                "Gagal memperbarui foto di database.",
-            );
-          }
-        }
+        const updateRes = await updatePhoto({ id: photoId, ...baseDbRow });
+        if (updateRes.error) throw new Error("Gagal memperbarui foto di database.");
       } else {
         // Authenticated INSERT
-        const insertPayload = {
-          id: photoId,
-          ...baseDbRow,
-          aspect_ratio: photoAspectRatio,
-        };
-
-        const { error: insertErr } = await supabase
-          .from("activity_media")
-          .insert(insertPayload);
-
-        if (insertErr) {
-          // Fallback if aspect_ratio column is not in remote schema
-          const { error: fallbackInsertErr } = await supabase
-            .from("activity_media")
-            .insert({
-              id: photoId,
-              ...baseDbRow,
-            });
-
-          if (fallbackInsertErr) {
-            throw new Error(
-              fallbackInsertErr.message || "Gagal menyimpan foto ke database.",
-            );
-          }
-        }
-      }
-
-      // Also upsert to latest_photos table if available (non-blocking)
-      try {
-        const latestRow = {
-          id: photoId,
-          image_url: finalImageUrl,
-          caption: photoFormData.title || "",
-          activity_id: photoFormData.activity_id,
-          sort_order: photoFormData.sort_order || 0,
-          published: true,
-        };
-        await supabase.from("latest_photos").upsert(latestRow);
-      } catch (_) {
-        // Silently ignore if latest_photos table is not active
+        const addRes = await addPhoto(baseDbRow);
+        if (addRes.error) throw new Error("Gagal menyimpan foto ke database.");
       }
 
       // Instantly update local state
@@ -1297,49 +904,28 @@ export default function AdminDashboard({
   };
 
   const handleDeletePhoto = async (id: string) => {
-    if (!window.confirm("Hapus foto ini?")) return;
-
-    // Ensure session
-    
-
-    if (!session || !session.user) {
-      onShowToast(
-        "Session admin tidak tersedia. Silakan login kembali.",
-        "error",
-      );
-      return;
-    }
+    const photo = photos.find((p) => String(p.id) === String(id));
+    const titleText = photo?.title ? ` "${photo.title}"` : "";
+    if (!window.confirm(`Apakah Anda yakin ingin menghapus kegiatan ini?${titleText}`)) return;
 
     try {
-      const photoToDelete = photos.find((p) => p.id === id);
-
-      const res = await fetch(`${API_BASE_URL}/photos.php`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id })
-      });
-      if (!res.ok) throw new Error("Gagal menghapus foto");
-      const rpcRes = await res.json();
-      if (!rpcRes.success) throw new Error(rpcRes.message || "Gagal menghapus foto");
-
-      // Try removing from storage bucket 'gallery'
-      if (photoToDelete?.image_url) {
-        const storagePath = getStorageObjectPath(
-          photoToDelete.image_url,
-          "gallery",
-        );
-        if (storagePath) {
-          try {
-            await supabase.storage.from("gallery").remove([storagePath]);
-          } catch (_) {}
-        }
+      const { data, error } = await deletePhoto(id);
+      if (error || !data || data.success !== true) {
+        const errMsg = data?.message || error?.message || "Gagal menghapus foto.";
+        onShowToast(errMsg, "error");
+        return;
       }
 
-      onShowToast("Foto berhasil dihapus.", "success");
+      const successMsg = data.message || "Kegiatan berhasil dihapus.";
+      onShowToast(successMsg, "success");
+      
+      // Update local state immediately
+      setPhotos((prev) => prev.filter((p) => String(p.id) !== String(id)));
+
       if (onRefreshData) onRefreshData();
       fetchData();
-    } catch (err) {
-      onShowToast("Terjadi kesalahan koneksi.", "error");
+    } catch (err: any) {
+      onShowToast(err.message || "Terjadi kesalahan koneksi.", "error");
     }
   };
 
@@ -1374,17 +960,16 @@ export default function AdminDashboard({
 
     try {
       for (const order of updatedOrders) {
-        await supabase
-          .from("activity_media")
-          .update({ sort_order: order.sort_order })
-          .eq("id", order.id);
-
-        try {
-          await supabase
-            .from("latest_photos")
-            .update({ sort_order: order.sort_order })
-            .eq("id", order.id);
-        } catch (_) {}
+        const fullPhoto = photos.find((p) => p.id === order.id);
+        if (fullPhoto) {
+          await updatePhoto({
+            id: fullPhoto.id,
+            category_id: fullPhoto.category_id,
+            title: fullPhoto.title,
+            image_url: fullPhoto.image_url,
+            display_order: order.sort_order,
+          });
+        }
       }
 
       onShowToast("Urutan foto berhasil diubah.", "success");
@@ -1397,22 +982,39 @@ export default function AdminDashboard({
 
   const handleSetCoverImage = async (photo: Photo) => {
     try {
-      const { error } = await supabase
-        .from("activities")
-        .update({ cover_image: photo.image_url })
-        .eq("id", photo.activity_id);
-
-      if (error) {
-        onShowToast(error.message || "Gagal mengatur cover kegiatan.", "error");
-      } else {
-        onShowToast(
-          "Foto ini berhasil dijadikan Cover Utama kegiatan.",
-          "success",
-        );
-        fetchData();
+      const actId = photo.category_id || photo.activity_id;
+      const currentAct = activities.find(a => String(a.id) === String(actId));
+      if (!currentAct) {
+        onShowToast("Kegiatan tidak ditemukan.", "error");
+        return;
       }
+      
+      const res = await fetch(`${API_BASE_URL}/categories.php`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: actId,
+          name: currentAct.title,
+          category: currentAct.category,
+          event_date: currentAct.date,
+          description: currentAct.description || "",
+          cover_image: photo.image_url,
+          background_video: currentAct.background_video || null,
+          status: currentAct.status || "published"
+        })
+      });
+      
+      if (!res.ok) throw new Error("Gagal mengatur cover kegiatan.");
+      const result = await res.json();
+      if (!result.success) throw new Error(result.message || "Gagal mengatur cover kegiatan.");
+
+      onShowToast(
+        "Foto ini berhasil dijadikan Cover Utama kegiatan.",
+        "success",
+      );
+      fetchData();
     } catch (err) {
-      onShowToast("Kesalahan koneksi.", "error");
+      onShowToast("Kesalahan koneksi atau server.", "error");
     }
   };
 
@@ -1459,69 +1061,29 @@ export default function AdminDashboard({
         p_about_image: JSON.stringify(defaultSettings),
       };
 
-      let saveError = null;
-      let rpcSucceeded = false;
+      const res = await fetch(`${API_BASE_URL}/settings.php`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
 
-      // 1. Try secure SECURITY DEFINER RPC helper first
-      try {
-        const { data: rpcRes, error: rpcErr } = await supabase.rpc(
-          "admin_save_settings",
-          payload,
-        );
-        if (!rpcErr && rpcRes && rpcRes.success) {
-          rpcSucceeded = true;
-        } else if (
-          rpcErr &&
-          rpcErr.message &&
-          !rpcErr.message.includes("does not exist")
-        ) {
-          saveError = rpcErr.message;
-        } else if (rpcRes && !rpcRes.success) {
-          saveError = rpcRes.message;
-        }
-      } catch (e) {
-        console.warn(
-          "RPC admin_save_settings not available, falling back to direct update:",
-          e,
-        );
+      if (!res.ok) {
+        throw new Error("Respon server tidak valid.");
       }
 
-      // 2. Fallback to direct update using correct columns if RPC is not available or has not been run yet
-      if (!rpcSucceeded && !saveError) {
-        const dbRow = {
-          school_name: defaultSettings.school_name,
-          address: defaultSettings.address,
-          email: defaultSettings.email,
-          phone: defaultSettings.phone,
-          whatsapp: defaultSettings.whatsapp,
-          about: defaultSettings.about_desc1,
-          vision: defaultSettings.vision_title,
-          mission: defaultSettings.missions.join("\n"),
-          about_image: JSON.stringify(defaultSettings),
-          updated_at: new Date().toISOString(),
-        };
+      const result = await res.json();
 
-        const { error: updErr } = await supabase
-          .from("site_settings")
-          .update(dbRow)
-          .eq("id", settingsId);
-
-        if (updErr) {
-          saveError = updErr.message;
-        }
+      if (!result.success) {
+        throw new Error(result.message || "Gagal menyetel ulang tata letak.");
       }
 
-      if (saveError) {
-        onShowToast(saveError || "Gagal menyetel ulang tata letak.", "error");
-      } else {
-        onShowToast(
-          "Tata letak beranda berhasil disetel ulang ke konfigurasi bawaan.",
-          "success",
-        );
-        fetchData();
-      }
-    } catch (err) {
-      onShowToast("Terjadi kesalahan koneksi.", "error");
+      onShowToast(
+        "Tata letak beranda berhasil disetel ulang ke konfigurasi bawaan.",
+        "success",
+      );
+      fetchData();
+    } catch (err: any) {
+      onShowToast(err.message || "Terjadi kesalahan koneksi.", "error");
     }
   };
 
@@ -1541,66 +1103,26 @@ export default function AdminDashboard({
         p_about_image: JSON.stringify(settingsFormData),
       };
 
-      let saveError = null;
-      let rpcSucceeded = false;
+      const res = await fetch(`${API_BASE_URL}/settings.php`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
 
-      // 1. Try secure SECURITY DEFINER RPC helper first
-      try {
-        const { data: rpcRes, error: rpcErr } = await supabase.rpc(
-          "admin_save_settings",
-          payload,
-        );
-        if (!rpcErr && rpcRes && rpcRes.success) {
-          rpcSucceeded = true;
-        } else if (
-          rpcErr &&
-          rpcErr.message &&
-          !rpcErr.message.includes("does not exist")
-        ) {
-          saveError = rpcErr.message;
-        } else if (rpcRes && !rpcRes.success) {
-          saveError = rpcRes.message;
-        }
-      } catch (e) {
-        console.warn(
-          "RPC admin_save_settings not available, falling back to direct update:",
-          e,
-        );
+      if (!res.ok) {
+        throw new Error("Respon server tidak valid.");
       }
 
-      // 2. Fallback to direct update using correct columns if RPC is not available or has not been run yet
-      if (!rpcSucceeded && !saveError) {
-        const dbRow = {
-          school_name: settingsFormData.school_name,
-          address: settingsFormData.address,
-          email: settingsFormData.email,
-          phone: settingsFormData.phone,
-          whatsapp: settingsFormData.whatsapp,
-          about: settingsFormData.about_desc1,
-          vision: settingsFormData.vision_title,
-          mission: settingsFormData.missions.join("\n"),
-          about_image: JSON.stringify(settingsFormData),
-          updated_at: new Date().toISOString(),
-        };
+      const result = await res.json();
 
-        const { error: updErr } = await supabase
-          .from("site_settings")
-          .update(dbRow)
-          .eq("id", settingsId);
-
-        if (updErr) {
-          saveError = updErr.message;
-        }
+      if (!result.success) {
+        throw new Error(result.message || "Gagal menyimpan pengaturan.");
       }
 
-      if (saveError) {
-        onShowToast(saveError || "Gagal menyimpan pengaturan.", "error");
-      } else {
-        onShowToast("Pengaturan sistem berhasil disimpan.", "success");
-        fetchData();
-      }
-    } catch (err) {
-      onShowToast("Terjadi kesalahan koneksi.", "error");
+      onShowToast("Pengaturan sistem berhasil disimpan.", "success");
+      fetchData();
+    } catch (err: any) {
+      onShowToast(err.message || "Terjadi kesalahan koneksi.", "error");
     }
   };
 
@@ -2764,7 +2286,7 @@ export default function AdminDashboard({
                                   setIsUploadingAboutPhoto(true);
                                   try {
                                     const publicUrl =
-                                      await uploadFileToSupabase(
+                                      await uploadFileToServer(
                                         file,
                                         "images",
                                       );
@@ -2773,7 +2295,7 @@ export default function AdminDashboard({
                                       about_photo: publicUrl,
                                     }));
                                     onShowToast(
-                                      "Foto berhasil diunggah ke Supabase Storage.",
+                                      "Foto berhasil diunggah.",
                                       "success",
                                     );
                                   } catch (err: any) {
@@ -2817,10 +2339,10 @@ export default function AdminDashboard({
                                 : "border-[#4f4538]/30 bg-[#110e09] hover:border-[#4f4538]/50 hover:bg-[#4f4538]/5"
                             }`}
                           >
-                            <div className="flex flex-col items-center justify-center pt-5 pb-6 space-y-2 px-4 text-center">
+                             <div className="flex flex-col items-center justify-center pt-5 pb-6 space-y-2 px-4 text-center">
                               {isUploadingAboutPhoto ? (
                                 <span className="text-xs text-[#f6c374] animate-pulse font-body">
-                                  Mengunggah file ke Supabase...
+                                  Mengunggah file ke server...
                                 </span>
                               ) : (
                                 <>
@@ -2850,7 +2372,7 @@ export default function AdminDashboard({
                                 }
                                 setIsUploadingAboutPhoto(true);
                                 try {
-                                  const publicUrl = await uploadFileToSupabase(
+                                  const publicUrl = await uploadFileToServer(
                                     file,
                                     "images",
                                   );
@@ -2859,7 +2381,7 @@ export default function AdminDashboard({
                                     about_photo: publicUrl,
                                   }));
                                   onShowToast(
-                                    "Foto berhasil diunggah ke Supabase Storage.",
+                                    "Foto berhasil diunggah.",
                                     "success",
                                   );
                                 } catch (err: any) {
@@ -5198,7 +4720,7 @@ export default function AdminDashboard({
                 {editingPhoto ? "Edit Foto Kegiatan" : "Upload Foto Kegiatan"}
               </h3>
               <p className="font-body text-xs text-[#9b8f7f] mt-1">
-                Unggah foto langsung dari perangkat Anda ke Supabase Storage dan
+                Unggah foto langsung dari perangkat Anda ke server dan
                 pilih rasio tampilan.
               </p>
             </div>
