@@ -141,3 +141,16 @@ export interface DashboardStats {
   totalVideos: number;
   latestActivity?: Activity;
 }
+
+export interface Twibbon {
+  id: string;
+  title: string;
+  slug: string;
+  description: string;
+  ratio: "1:1" | "4:3" | "16:9" | "9:16";
+  designUrl: string; // Base64 data-URI of the transparent PNG
+  isActive: boolean;
+  useCount: number;
+  createdAt: string;
+}
+

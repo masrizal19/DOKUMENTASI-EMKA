@@ -11,7 +11,8 @@ import AdminDashboard from "./components/AdminDashboard.js";
 import Lightbox from "./components/Lightbox.js";
 import SearchModal from "./components/SearchModal.js";
 import Notification from "./components/Notification.js";
-import { Calendar, Tag, Shield, Clock, BookOpen, MapPin, Mail, Phone, ExternalLink, Loader2 } from "lucide-react";
+import PublicTwibon from "./components/PublicTwibon.tsx";
+import { Calendar, Tag, Shield, Clock, BookOpen, MapPin, Mail, Phone, ExternalLink, Loader2, Sparkles } from "lucide-react";
 import { fallbackData } from "./lib/fallbackData.js";
 import { resolveImageUrl } from "./lib/storage.js";
 import { getAdminSession, isAdminAuthenticated, performAdminLogout } from "./lib/adminAuth.js";
@@ -25,7 +26,7 @@ export default function App() {
   const [isFetchingData, setIsFetchingData] = useState(true);
 
   // Routing state
-  const [activeTab, setActiveTab] = useState<"beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "detail-kegiatan" | "admin">("beranda");
+  const [activeTab, setActiveTab] = useState<"beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "detail-kegiatan" | "admin" | "twibon">("beranda");
   const [activeSlug, setActiveSlug] = useState<string>("");
   const [prevTab, setPrevTab] = useState<string>("beranda");
 
@@ -327,6 +328,17 @@ export default function App() {
       // Priority: check hash first, then fallback to pathname for entry points/refreshes
       if (hash.startsWith("#admin") || pathname.includes("/admin")) {
         setActiveTab("admin");
+      } else if (hash.startsWith("#twibon/") || pathname.includes("/twibon/")) {
+        const slug = hash.startsWith("#twibon/") 
+          ? hash.replace("#twibon/", "") 
+          : pathname.split("/twibon/").pop()?.split("/")[0];
+        if (slug) {
+          setActiveTab("twibon");
+          setActiveSlug(slug);
+        }
+      } else if (hash === "#twibon" || pathname.includes("/twibon")) {
+        setActiveTab("twibon");
+        setActiveSlug("");
       } else if (hash.startsWith("#kegiatan/") || pathname.includes("/kegiatan/")) {
         const slug = hash.startsWith("#kegiatan/") 
           ? hash.replace("#kegiatan/", "") 
@@ -366,13 +378,15 @@ export default function App() {
   }, []);
 
   // Navigate utility that syncs with address bar
-  const navigateTo = (tab: "beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "admin", slug?: string) => {
+  const navigateTo = (tab: "beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "admin" | "twibon", slug?: string) => {
     // Get the base path (e.g., "/galeri-emka/") to keep it when using pushState
     const currentPath = window.location.pathname;
     const basePath = currentPath.includes("/admin") 
       ? currentPath.split("/admin")[0] 
       : currentPath.includes("/kegiatan/")
       ? currentPath.split("/kegiatan/")[0]
+      : currentPath.includes("/twibon/")
+      ? currentPath.split("/twibon/")[0]
       : currentPath.endsWith("/") ? currentPath : currentPath.split("/").slice(0, -1).join("/") + "/";
     
     // Ensure basePath ends with a slash and doesn't contain the route
@@ -381,6 +395,10 @@ export default function App() {
     if (tab === "admin") {
       window.history.pushState(null, "", cleanBase + "admin");
       setActiveTab("admin");
+    } else if (tab === "twibon" && slug) {
+      window.history.pushState(null, "", cleanBase + "twibon/" + slug);
+      setActiveTab("twibon");
+      setActiveSlug(slug);
     } else if (slug) {
       window.history.pushState(null, "", cleanBase + "kegiatan/" + slug);
       setActiveTab("detail-kegiatan");
@@ -389,6 +407,7 @@ export default function App() {
       const route = tab === "beranda" ? "" : tab;
       window.history.pushState(null, "", cleanBase + route);
       setActiveTab(tab);
+      setActiveSlug("");
     }
     
     // Trigger the location change manually since pushState doesn't trigger popstate
@@ -1008,6 +1027,14 @@ export default function App() {
               </div>
             </div>
           </div>
+        )}
+
+        {activeTab === "twibon" && (
+          <PublicTwibon
+            campaignSlug={activeSlug}
+            onNavigate={navigateTo}
+            onShowToast={showToast}
+          />
         )}
 
         {activeTab === "admin" && (

@@ -22,7 +22,9 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  Sparkles,
 } from "lucide-react";
+import AdminTwibon from "./AdminTwibon.tsx";
 import { fallbackData } from "../lib/fallbackData.js";
 import { getAdminSession } from "../lib/adminAuth.js";
 import { ImageCropModal } from "./ImageCropModal.tsx";
@@ -68,7 +70,7 @@ export default function AdminDashboard({
 }: AdminDashboardProps) {
   const session = token ? { user: { id: "admin" } } : null;
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "activities" | "photos" | "settings"
+    "dashboard" | "activities" | "photos" | "settings" | "twibon"
   >("dashboard");
   const [settingsSubTab, setSettingsSubTab] = useState<
     "school" | "hero" | "about" | "vision" | "sections" | "copyright"
@@ -1702,6 +1704,17 @@ export default function AdminDashboard({
               }`}
             >
               <SettingsIcon className="w-4 h-4" /> Pengaturan
+            </button>
+
+            <button
+              onClick={() => setActiveTab("twibon")}
+              className={`flex items-center gap-3 px-4 py-3 rounded-sm font-subheading text-xs tracking-widest uppercase transition-colors cursor-pointer ${
+                activeTab === "twibon"
+                  ? "bg-[#d8a85c] text-[#110e09] font-bold"
+                  : "text-[#d3c4b3] hover:bg-[#39342e]/30 hover:text-[#eae1d8]"
+              }`}
+            >
+              <Sparkles className="w-4 h-4" /> Twibon
             </button>
           </nav>
         </div>
@@ -4693,6 +4706,10 @@ export default function AdminDashboard({
               </div>
             </form>
           </div>
+        )}
+
+        {activeTab === "twibon" && (
+          <AdminTwibon onShowToast={onShowToast} />
         )}
       </main>
 

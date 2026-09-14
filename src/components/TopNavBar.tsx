@@ -4,7 +4,7 @@ import { Menu, X, MessageSquare, Shield, Search } from "lucide-react";
 
 interface TopNavBarProps {
   activeTab: string;
-  onChangeTab: (tab: "beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "admin", slug?: string) => void;
+  onChangeTab: (tab: "beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "admin" | "twibon", slug?: string) => void;
   settings: Settings;
   isAdminLoggedIn: boolean;
   onOpenSearch: () => void;
@@ -32,6 +32,7 @@ export default function TopNavBar({ activeTab, onChangeTab, settings, isAdminLog
   const navItems = [
     { id: "beranda", label: "Beranda" },
     { id: "galeri", label: "Galeri" },
+    { id: "twibon", label: "Twibon" },
     ...(isFotoTerbaruPageEnabled ? [{ id: "foto-terbaru", label: "Foto Terbaru" } as const] : []),
     { id: "tentang", label: "Tentang" }
   ];
