@@ -815,9 +815,29 @@ export default function AdminDashboard({
     setIsDeletingActivity(true);
 
     try {
-      console.log('[GALERI API] DELETE activity ID:', numericId);
+      // 1. Ambil seluruh foto yang terkait dengan kegiatan ini (activity_id = numericId)
+      const relatedPhotos = photos.filter(
+        (p) => Number(p.activity_id) === numericId
+      );
+
+      // 2. Hapus setiap media terkait untuk memastikan tidak ada orphan photos
+      if (relatedPhotos.length > 0) {
+        console.log(`[GALERI API] Deleting ${relatedPhotos.length} photos linked to activity ${numericId}...`);
+        await Promise.allSettled(
+          relatedPhotos.map((p) => {
+            const pid = Number(p.id);
+            if (pid > 0) {
+              return deletePhoto(pid);
+            }
+            return Promise.resolve(null);
+          })
+        );
+      }
+
+      // 3. Panggil deleteActivity API
+      console.log("[GALERI API] DELETE ACTIVITY REQUEST", { id: numericId });
       const { data, error } = await deleteActivity(numericId);
-      console.log('[GALERI API] DELETE activity response:', { data, error });
+      console.log("[GALERI API] DELETE ACTIVITY RESPONSE", { data, error });
 
       const isNotFound =
         data?.message?.toLowerCase().includes("tidak ditemukan") ||
@@ -826,7 +846,10 @@ export default function AdminDashboard({
 
       if (error && !isNotFound) {
         const errMsg = data?.message || error?.message || "Gagal menghapus kegiatan.";
-        console.error("[GALERI API] DELETE error response:", { errMsg, data, error });
+        console.error("[GALERI API] DELETE ERROR", {
+          status: (error as any)?.status || 500,
+          body: { errMsg, data, error }
+        });
         onShowToast(errMsg, "error");
         setIsDeletingActivity(false);
         setActivityToDelete(null);
@@ -857,7 +880,7 @@ export default function AdminDashboard({
       if (onRefreshData) onRefreshData();
       fetchData();
     } catch (err: any) {
-      console.error("[GALERI API] DELETE activity exception:", err);
+      console.error("[GALERI API] DELETE ERROR", err);
       onShowToast(
         err?.message || "Terjadi kesalahan saat menghapus kegiatan.",
         "error",
@@ -1063,10 +1086,12 @@ export default function AdminDashboard({
   };
 
   const handleConfirmDeletePhoto = async (photo: Photo) => {
+    if (isDeletingPhoto) return;
     const numericId = Number(photo.id);
     if (!photo.id || isNaN(numericId) || numericId <= 0) {
       console.error("[GALERI API] Invalid photo ID to delete:", photo.id);
       onShowToast("ID foto tidak valid untuk dihapus.", "error");
+      setPhotoToDelete(null);
       return;
     }
 
@@ -1076,7 +1101,9 @@ export default function AdminDashboard({
 
       if (error || !data || data.success !== true) {
         const errMsg = data?.message || error?.message || "Gagal menghapus foto.";
+        console.error("[GALERI API] DELETE PHOTO FAILED:", { data, error, errMsg });
         onShowToast(errMsg, "error");
+        setPhotoToDelete(null);
         return;
       }
 
@@ -1096,6 +1123,7 @@ export default function AdminDashboard({
     } catch (err: any) {
       console.error("[GALERI API] DELETE exception:", err);
       onShowToast(err.message || "Terjadi kesalahan koneksi.", "error");
+      setPhotoToDelete(null);
     } finally {
       setIsDeletingPhoto(false);
     }
@@ -5020,13 +5048,15 @@ export default function AdminDashboard({
                 <Trash2 className="w-5 h-5 text-red-400" />
               </div>
               <h3 className="font-display text-lg font-bold text-[#eae1d8]">
-                Hapus kegiatan ini?
+                Hapus Kegiatan?
               </h3>
             </div>
 
+            <p className="font-body text-xs text-[#eae1d8] leading-relaxed mb-2 font-medium">
+              Kegiatan ini memiliki foto/media. Semua media yang terkait juga akan dihapus. Lanjutkan?
+            </p>
             <p className="font-body text-xs text-[#9b8f7f] leading-relaxed mb-4">
-              Cover, gambar background, dan video yang terkait juga akan dihapus
-              dari penyimpanan.
+              Cover, semua foto lokal yang terhubung, dan data kegiatan akan dihapus secara permanen dari server dan database. Kategori dan link eksternal tidak akan dihapus.
             </p>
 
             {activityToDelete.title && (
@@ -5059,7 +5089,77 @@ export default function AdminDashboard({
                     <span>MENGHAPUS...</span>
                   </>
                 ) : (
-                  <span>HAPUS</span>
+                  <span>HAPUS KEGIATAN & SEMUA FOTO</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL (PHOTO) */}
+      {photoToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-fade-in">
+          <div className="glass-panel w-full max-w-md rounded-lg border border-[#4f4538]/30 bg-[#14100b] p-6 shadow-2xl">
+            <div className="flex items-center gap-3 text-red-400 mb-3">
+              <div className="p-2.5 rounded-full bg-red-500/10 border border-red-500/20">
+                <Trash2 className="w-5 h-5 text-red-400" />
+              </div>
+              <h3 className="font-display text-lg font-bold text-[#eae1d8]">
+                Hapus Foto?
+              </h3>
+            </div>
+
+            <p className="font-body text-xs text-[#eae1d8] leading-relaxed mb-4">
+              Apakah Anda yakin ingin menghapus foto ini? File dan data foto akan dihapus secara permanen dari server dan database.
+            </p>
+
+            {photoToDelete.image_url && (
+              <div className="mb-6 flex items-center gap-3 p-3 rounded bg-[#110e09] border border-[#4f4538]/20">
+                <img
+                  src={photoToDelete.image_url}
+                  alt={photoToDelete.title || "Foto"}
+                  className="w-14 h-14 object-cover rounded border border-[#4f4538]/30 shrink-0 bg-black/40"
+                  onError={(e) => {
+                    (e.target as HTMLElement).style.display = "none";
+                  }}
+                />
+                <div className="overflow-hidden">
+                  <span className="text-[#9b8f7f] font-subheading text-[10px] tracking-widest uppercase block mb-0.5">
+                    Judul Foto:
+                  </span>
+                  <div className="text-[#eae1d8] font-body text-xs truncate font-medium">
+                    {photoToDelete.title || "Foto Kegiatan"}
+                  </div>
+                  <div className="text-[#9b8f7f] text-[10px] font-mono mt-0.5">
+                    ID: {photoToDelete.id}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#4f4538]/15">
+              <button
+                type="button"
+                disabled={isDeletingPhoto}
+                onClick={() => setPhotoToDelete(null)}
+                className="px-4 py-2 rounded-sm border border-[#4f4538]/30 font-subheading text-xs tracking-wider uppercase text-[#eae1d8] hover:bg-[#4f4538]/20 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                BATAL
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingPhoto}
+                onClick={() => handleConfirmDeletePhoto(photoToDelete)}
+                className="px-5 py-2 rounded-sm bg-red-600 hover:bg-red-700 text-white font-subheading text-xs tracking-wider uppercase font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-2"
+              >
+                {isDeletingPhoto ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>MENGHAPUS...</span>
+                  </>
+                ) : (
+                  <span>HAPUS FOTO</span>
                 )}
               </button>
             </div>

@@ -434,7 +434,9 @@ export async function updatePhoto(data: {
  */
 export async function deletePhoto(id: string | number) {
   const numericId = Number(id);
-  console.log("[GALERI API] DELETE photo", { id: numericId });
+  console.log("[GALERI API] DELETE PHOTO REQUEST", {
+    id: numericId,
+  });
 
   try {
     const url = `${API_BASE_URL}/delete-photo.php`;
@@ -455,17 +457,21 @@ export async function deletePhoto(id: string | number) {
       console.warn("[GALERI API] DELETE photo non-JSON response:", text);
     }
 
-    console.log("[GALERI API] DELETE photo response", result || text);
+    const responseBody = result || text;
+    console.log("[GALERI API] DELETE PHOTO RESPONSE", responseBody);
 
     if (!res.ok || result?.success !== true) {
+      console.error("[GALERI API] DELETE ERROR", {
+        status: res.status,
+        body: responseBody,
+      });
       const errMsg = result?.message || `HTTP Error ${res.status}: ${res.statusText}`;
-      console.error("[GALERI API] DELETE photo error", errMsg, result);
       return { data: result, error: new Error(errMsg) };
     }
 
     return { data: result, error: null };
   } catch (err: any) {
-    console.error("[GALERI API] DELETE photo error", err);
+    console.error("[GALERI API] DELETE ERROR", err);
     return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
   }
 }
@@ -573,11 +579,12 @@ export async function updateActivity(data: {
  */
 export async function deleteActivity(id: string | number) {
   const numericId = Number(id);
-  console.log('[GALERI API] DELETE activity ID:', numericId);
+  console.log("[GALERI API] DELETE ACTIVITY REQUEST", {
+    id: numericId,
+  });
 
   try {
     const url = `${API_BASE_URL}/delete-activity.php`;
-    console.log(`[GALERI API] DELETE activity -> Requesting ${url} with id:`, numericId);
 
     const res = await fetch(url, {
       method: "POST",
@@ -595,13 +602,14 @@ export async function deleteActivity(id: string | number) {
       console.warn("[GALERI API] DELETE activity non-JSON response:", text);
     }
 
-    console.log('[GALERI API] DELETE activity response status:', res.status, result);
+    const responseBody = result || text;
+    console.log("[GALERI API] DELETE ACTIVITY RESPONSE", responseBody);
 
     if (
       res.status === 404 ||
       (result && result.success === false && result.message?.toLowerCase().includes("tidak ditemukan"))
     ) {
-      console.log(`[GALERI API] Activity ID ${numericId} is already absent. Client state will synchronize.`);
+      console.log(`[GALERI API] Activity ID ${numericId} is already absent.`);
       return {
         data: {
           success: true,
@@ -613,14 +621,17 @@ export async function deleteActivity(id: string | number) {
     }
 
     if (!res.ok || result?.success !== true) {
+      console.error("[GALERI API] DELETE ERROR", {
+        status: res.status,
+        body: responseBody,
+      });
       const errMsg = result?.message || `HTTP Error ${res.status}: ${res.statusText}`;
-      console.error("[GALERI API] DELETE activity error:", errMsg, result);
       return { data: result, error: new Error(errMsg) };
     }
 
     return { data: result, error: null };
   } catch (err: any) {
-    console.error("[GALERI API] DELETE activity exception:", err);
+    console.error("[GALERI API] DELETE ERROR", err);
     return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
   }
 }

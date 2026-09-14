@@ -17,6 +17,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/db.php';
 
+/**
+ * Hapus file media lokal hanya jika URL berasal dari server storage sendiri
+ * Mendukung foto & video (JPG, JPEG, PNG, WEBP, HEIC, MP4, WEBM, MOV, dsb.)
+ * Tidak pernah melakukan unlink terhadap URL eksternal (Google Drive, Unsplash, Shutterstock, dll.)
+ */
+function deleteLocalMediaFile($imageUrl) {
+    if (empty($imageUrl)) {
+        return false;
+    }
+
+    $parsed = parse_url($imageUrl);
+    $host = $parsed['host'] ?? '';
+    $path = $parsed['path'] ?? $imageUrl;
+
+    $isLocal = false;
+    if (empty($host)) {
+        if (strpos($path, '/uploads/') !== false || strpos($path, 'uploads/') === 0) {
+            $isLocal = true;
+        }
+    } else {
+        if (stripos($host, 'mkverse.my.id') !== false || stripos($host, 'localhost') !== false || stripos($host, '127.0.0.1') !== false) {
+            if (strpos($path, '/uploads/') !== false) {
+                $isLocal = true;
+            }
+        }
+    }
+
+    if (!$isLocal) {
+        return false;
+    }
+
+    $filename = basename($path);
+    if (empty($filename) || $filename === '.' || $filename === '..') {
+        return false;
+    }
+
+    $possiblePaths = [
+        __DIR__ . '/../uploads/' . $filename,
+        __DIR__ . '/uploads/' . $filename,
+        dirname(__DIR__) . '/uploads/' . $filename,
+    ];
+
+    foreach ($possiblePaths as $filePath) {
+        if (file_exists($filePath) && is_file($filePath)) {
+            @unlink($filePath);
+            return true;
+        }
+    }
+
+    return false;
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $_SERVER['REQUEST_METHOD'] !== 'DELETE') {
     http_response_code(405);
     echo json_encode([
@@ -48,7 +100,7 @@ if ($id <= 0) {
 
 try {
     // 1. Cek keberadaan foto di database
-    $stmtCheck = $pdo->prepare("SELECT id, image_url FROM photos WHERE id = ? LIMIT 1");
+    $stmtCheck = $pdo->prepare("SELECT id, image_url, title, activity_id FROM photos WHERE id = ? LIMIT 1");
     $stmtCheck->execute([$id]);
     $photo = $stmtCheck->fetch();
 
@@ -62,14 +114,22 @@ try {
         exit;
     }
 
-    // 2. Hapus file fisik lokal jika tersimpan di server lokal uploads
+    // 2. Hapus file fisik lokal jika memang milik server storage sendiri
     $imageUrl = $photo['image_url'] ?? '';
-    if (!empty($imageUrl) && strpos($imageUrl, '/uploads/') !== false) {
-        $parsedUrl = parse_url($imageUrl, PHP_URL_PATH);
-        $filename = basename($parsedUrl);
-        $filePath = __DIR__ . '/uploads/' . $filename;
-        if (file_exists($filePath) && is_file($filePath)) {
-            @unlink($filePath);
+    $fileDeleted = false;
+    $fileMissing = false;
+
+    if (!empty($imageUrl)) {
+        $fileDeleted = deleteLocalMediaFile($imageUrl);
+        if (!$fileDeleted) {
+            $parsed = parse_url($imageUrl);
+            $host = $parsed['host'] ?? '';
+            $path = $parsed['path'] ?? $imageUrl;
+            if (empty($host) || stripos($host, 'mkverse.my.id') !== false) {
+                if (strpos($path, '/uploads/') !== false) {
+                    $fileMissing = true;
+                }
+            }
         }
     }
 
@@ -80,10 +140,15 @@ try {
     echo json_encode([
         'success' => true,
         'message' => 'Data foto berhasil dihapus.',
-        'data' => ['id' => $id]
+        'data' => [
+            'id' => $id,
+            'database_deleted' => true,
+            'file_deleted' => $fileDeleted,
+            'file_missing' => $fileMissing
+        ]
     ]);
 
-} catch (PDOException $e) {
+} catch (Throwable $e) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
@@ -91,3 +156,4 @@ try {
         'data' => null
     ]);
 }
+
