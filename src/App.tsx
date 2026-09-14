@@ -15,7 +15,7 @@ import { Calendar, Tag, Shield, Clock, BookOpen, MapPin, Mail, Phone, ExternalLi
 import { fallbackData } from "./lib/fallbackData.js";
 import { resolveImageUrl } from "./lib/storage.js";
 import { getAdminSession, isAdminAuthenticated, performAdminLogout } from "./lib/adminAuth.js";
-import { fetchPhotos, fetchCategories, fetchSettings } from "./lib/api.js";
+import { fetchPhotos, fetchCategories, fetchSettings, fetchActivities } from "./lib/api.js";
 
 export default function App() {
   // Public data state
@@ -69,8 +69,9 @@ export default function App() {
       }
 
       // Fetch in parallel via centralized API
-      const [settingsRes, categoriesRes, photosRes] = await Promise.all([
+      const [settingsRes, activitiesRes, categoriesRes, photosRes] = await Promise.all([
         fetchSettings().catch(() => ({ data: null, error: null })),
+        fetchActivities(true).catch(() => ({ data: null, error: null })),
         fetchCategories().catch(() => ({ data: null, error: null })),
         fetchPhotos().catch(() => ({ data: null, error: null })),
       ]);
@@ -123,27 +124,51 @@ export default function App() {
         };
       }
 
-      // Map Categories -> Activities
+      // Map Activities (Priority: activities.php -> fallback: categories.php)
+      let deletedCatIds: number[] = [];
+      try {
+        deletedCatIds = JSON.parse(localStorage.getItem("emka_deleted_category_ids") || "[]");
+      } catch {
+        deletedCatIds = [];
+      }
+
       let mappedActivities: Activity[] = [];
-      if (categoriesRes?.data?.success && Array.isArray(categoriesRes.data.data)) {
-        mappedActivities = (categoriesRes.data.data as any[]).map((row: any) => ({
-          id: String(row.id),
-          title: row.name || row.title || "Kategori Tanpa Nama",
-          slug: row.slug || (row.name || row.title || "").toLowerCase().replace(/\s+/g, '-') || `cat-${row.id}`,
-          category: row.name || row.category || "Lainnya",
-          date: row.date || row.event_date || "0000-00-00",
-          description: row.description || `Dokumentasi untuk kategori ${row.name || row.title || "ini"}.`,
-          cover_image: row.cover_image || "",
-          background_image: row.background_image || "",
-          background_video: row.background_video || "",
-          background_video_start: row.background_video_start || 0,
-          background_video_end: row.background_video_end || null,
-          background_video_loop: row.background_video_loop !== false,
-          google_drive_url: row.google_drive_url || null,
-          status: "published", 
-          created_at: row.created_at || new Date().toISOString(),
-          updated_at: row.updated_at || new Date().toISOString()
-        }));
+      let isActivitiesLoaded = false;
+
+      if (activitiesRes?.data?.success && Array.isArray(activitiesRes.data.data)) {
+        isActivitiesLoaded = true;
+        mappedActivities = (activitiesRes.data.data as any[])
+          .filter((row: any) => !deletedCatIds.includes(Number(row.id)))
+          .map((row: any) => ({
+            id: String(row.id),
+            title: row.title || row.name || "Kegiatan Tanpa Nama",
+            slug: row.slug || (row.title || row.name || "").toLowerCase().replace(/[^a-z0-9]+/g, '-') || `act-${row.id}`,
+            category: row.category_name || row.category || "Kegiatan Sekolah",
+            category_id: row.category_id ? String(row.category_id) : "",
+            date: row.event_date || row.date || "0000-00-00",
+            description: row.description || "",
+            cover_image: resolveImageUrl(row.cover_url || row.cover_image) || "",
+            status: (row.is_published === 1 || row.is_published === true || row.status === 'published') ? 'published' : 'draft',
+            created_at: row.created_at || new Date().toISOString(),
+            updated_at: row.updated_at || new Date().toISOString()
+          }));
+      } else if (categoriesRes?.data?.success && Array.isArray(categoriesRes.data.data)) {
+        isActivitiesLoaded = true;
+        mappedActivities = (categoriesRes.data.data as any[])
+          .filter((row: any) => !deletedCatIds.includes(Number(row.id)))
+          .map((row: any) => ({
+            id: String(row.id),
+            title: row.name || row.title || "Kategori Tanpa Nama",
+            slug: row.slug || (row.name || row.title || "").toLowerCase().replace(/[^a-z0-9]+/g, '-') || `cat-${row.id}`,
+            category: row.name || row.category || "Kegiatan Sekolah",
+            category_id: String(row.id),
+            date: row.date || row.event_date || "0000-00-00",
+            description: row.description || `Dokumentasi untuk kategori ${row.name || row.title || "ini"}.`,
+            cover_image: resolveImageUrl(row.cover_image) || "",
+            status: "published", 
+            created_at: row.created_at || new Date().toISOString(),
+            updated_at: row.updated_at || new Date().toISOString()
+          }));
       }
 
       // Map Photos
@@ -165,31 +190,33 @@ export default function App() {
       }
 
       // Update state if fresh data was received
-      if (mappedActivities.length > 0) {
+      if (isActivitiesLoaded) {
         setActivities(mappedActivities);
         sessionStorage.setItem("emka_cached_activities", JSON.stringify(mappedActivities));
       }
 
-      if (mappedPhotos.length > 0) {
+      if (photosRes?.data?.success && Array.isArray(photosRes.data.data)) {
         setPhotos(mappedPhotos);
         sessionStorage.setItem("emka_cached_photos", JSON.stringify(mappedPhotos));
 
-        // Auto-assign cover from latest photo if category has no cover
-        const updatedActivities = (mappedActivities.length > 0 ? mappedActivities : activities).map((act) => {
-          if (!act.cover_image) {
-            const latestPhoto = mappedPhotos
-              .filter((p) => String(p.category_id) === String(act.id))
-              .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
-            
-            if (latestPhoto) {
-              return { ...act, cover_image: latestPhoto.image_url };
+        // Auto-assign cover from latest photo if activity has no cover
+        if (isActivitiesLoaded) {
+          const updatedActivities = mappedActivities.map((act) => {
+            if (!act.cover_image) {
+              const latestPhoto = mappedPhotos
+                .filter((p) => String(p.category_id) === String(act.id))
+                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+              
+              if (latestPhoto) {
+                return { ...act, cover_image: latestPhoto.image_url };
+              }
             }
-          }
-          return act;
-        });
+            return act;
+          });
 
-        setActivities(updatedActivities);
-        sessionStorage.setItem("emka_cached_activities", JSON.stringify(updatedActivities));
+          setActivities(updatedActivities);
+          sessionStorage.setItem("emka_cached_activities", JSON.stringify(updatedActivities));
+        }
       }
 
       if (activeSet) {

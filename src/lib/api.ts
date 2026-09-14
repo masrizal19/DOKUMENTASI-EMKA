@@ -16,7 +16,7 @@ const getApiBaseUrl = (): string => {
 const getStorageBaseUrl = (): string => {
   const envUrl = (
     (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_STORAGE_URL) ||
-    "https://galeri.mkverse.my.id/uploads"
+    "https://api.mkverse.my.id/uploads"
   )
     .trim()
     .replace(/\/+$/, "");
@@ -67,23 +67,27 @@ export async function apiRequest<T = any>(
 
   try {
     const res = await fetch(url, config);
-    
-    // Check HTTP status code
-    if (!res.ok) {
-      let errorMsg = `HTTP Error ${res.status}: ${res.statusText}`;
-      try {
-        const errJson = await res.json();
-        if (errJson?.message) {
-          errorMsg = errJson.message;
-        }
-      } catch (_) {
-        // Response might not be JSON
-      }
-      console.error(`${tag} Failed with HTTP ${res.status}`, errorMsg);
+    const text = await res.text();
+    let result: any;
+
+    try {
+      result = JSON.parse(text);
+    } catch {
+      const errorMsg = `Server mengembalikan response bukan JSON (HTTP ${res.status}): ${text}`;
+      console.error(`${tag} Non-JSON Response:`, errorMsg);
       return { data: null, error: new Error(errorMsg) };
     }
 
-    const result = await res.json();
+    if (!res.ok) {
+      const errorMsg = result?.message || `HTTP Error ${res.status}: ${res.statusText}`;
+      if (res.status === 404 && result?.message?.toLowerCase().includes("tidak ditemukan")) {
+        console.log(`${tag} Resource not found on server (404):`, errorMsg);
+      } else {
+        console.error(`${tag} Failed with HTTP ${res.status}:`, errorMsg, result);
+      }
+      return { data: result, error: new Error(errorMsg) };
+    }
+
     console.log(`${tag} <- Success:`, result);
 
     if (result && typeof result === "object" && "success" in result) {
@@ -154,31 +158,53 @@ export async function loginAdmin(username: string, password: string) {
  * Payload: FormData with 'file' field
  */
 export async function uploadPhoto(file: File): Promise<{ data: any; error: Error | null; url?: string }> {
-  console.log("[GALERI API] UPLOAD image", file.name);
-  const formData = new FormData();
-  formData.append("file", file);
+  console.log("[GALERI API] Upload request", {
+    name: file?.name,
+    type: file?.type,
+    size: file?.size,
+  });
 
-  const res = await apiRequest("upload.php", "POST", formData, true, "[GALERI API] UPLOAD image");
-  
-  if (res.error || !res.data) {
-    return { data: null, error: res.error || new Error("Upload gagal"), url: undefined };
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const uploadResponse = await fetch(`${API_BASE_URL}/upload.php`, {
+      method: "POST",
+      body: formData,
+    });
+
+    const uploadText = await uploadResponse.text();
+    let uploadResult: any;
+
+    try {
+      uploadResult = JSON.parse(uploadText);
+    } catch {
+      throw new Error(`Upload API mengembalikan response bukan JSON: ${uploadText}`);
+    }
+
+    console.log("[GALERI API] Upload response", uploadResult);
+
+    if (uploadResult?.success !== true) {
+      const msg = uploadResult?.message || "Upload gambar gagal.";
+      return { data: uploadResult, error: new Error(msg), url: undefined };
+    }
+
+    const imageUrl = uploadResult?.data?.url;
+    if (!imageUrl) {
+      return { data: uploadResult, error: new Error("URL gambar tidak ditemukan dalam response upload."), url: undefined };
+    }
+
+    return { data: uploadResult, error: null, url: imageUrl };
+  } catch (err: any) {
+    console.error("[GALERI API] Upload exception:", err);
+    return { data: null, error: err instanceof Error ? err : new Error(String(err)), url: undefined };
   }
-
-  // Extract returned URL from backend data structure
-  const rawData: any = res.data;
-  const uploadedUrl =
-    rawData?.data?.url ||
-    rawData?.url ||
-    rawData?.image_url ||
-    (rawData?.data?.filename ? `${STORAGE_BASE_URL}/${rawData.data.filename}` : undefined);
-
-  return { data: res.data, error: null, url: uploadedUrl };
 }
 
 /**
  * 6. ADD PHOTO / KEGIATAN
  * POST https://api.mkverse.my.id/api/add-photo.php
- * Fields: title, description, image_url, category_id, event_date, is_featured, display_order
+ * JSON Payload: { title, description, image_url, category_id, event_date, is_featured, display_order }
  */
 export async function addPhoto(data: {
   title: string;
@@ -189,23 +215,57 @@ export async function addPhoto(data: {
   is_featured?: number | boolean;
   display_order?: number;
 } | FormData) {
-  console.log("[GALERI API] ADD photo", data);
-  let formData: FormData;
-
   if (data instanceof FormData) {
-    formData = data;
-  } else {
-    formData = new FormData();
-    formData.append("title", data.title || "");
-    formData.append("description", data.description || "");
-    formData.append("image_url", data.image_url || "");
-    formData.append("category_id", String(data.category_id || "1"));
-    formData.append("event_date", data.event_date || new Date().toISOString().split("T")[0]);
-    formData.append("is_featured", data.is_featured ? "1" : "0");
-    formData.append("display_order", String(data.display_order ?? 1));
+    console.log("[GALERI API] Add photo request (FormData)");
+    const res = await apiRequest("add-photo.php", "POST", data, true, "[GALERI API] Add photo");
+    console.log("[GALERI API] Add photo response", res.data || res.error);
+    return res;
   }
 
-  return apiRequest("add-photo.php", "POST", formData, true, "[GALERI API] ADD photo");
+  const payload = {
+    title: data.title || "",
+    description: data.description || "",
+    image_url: data.image_url || "",
+    category_id: Number(data.category_id || 1),
+    event_date: data.event_date || new Date().toISOString().split("T")[0],
+    is_featured: data.is_featured ? 1 : 0,
+    display_order: Number(data.display_order ?? 1),
+  };
+
+  console.log("[GALERI API] Add photo request", payload);
+
+  try {
+    const addResponse = await fetch(`${API_BASE_URL}/add-photo.php`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const addText = await addResponse.text();
+    let addResult: any;
+
+    try {
+      addResult = JSON.parse(addText);
+    } catch {
+      throw new Error(`Add Photo API mengembalikan response bukan JSON: ${addText}`);
+    }
+
+    console.log("[GALERI API] Add photo response", addResult);
+
+    if (addResult?.success !== true) {
+      return {
+        data: addResult,
+        error: new Error(addResult?.message || "Gagal menyimpan data foto ke database."),
+      };
+    }
+
+    return { data: addResult, error: null };
+  } catch (err: any) {
+    console.error("[GALERI API] Add photo exception:", err);
+    return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
+  }
 }
 
 /**
@@ -223,7 +283,7 @@ export async function updatePhoto(data: {
   is_featured?: number | boolean;
   display_order?: number;
 } | FormData) {
-  console.log("[GALERI API] UPDATE photo", data);
+  console.log("[GALERI API] UPDATE photo request", data);
   let formData: FormData;
 
   if (data instanceof FormData) {
@@ -240,17 +300,203 @@ export async function updatePhoto(data: {
     if (data.display_order !== undefined) formData.append("display_order", String(data.display_order));
   }
 
-  return apiRequest("update-photo.php", "POST", formData, true, "[GALERI API] UPDATE photo");
+  const res = await apiRequest("update-photo.php", "POST", formData, true, "[GALERI API] UPDATE photo");
+  console.log("[GALERI API] UPDATE photo response", res);
+  return res;
 }
 
 /**
- * 8. DELETE PHOTO / KEGIATAN
+ * 8. DELETE PHOTO / MEDIA
  * POST https://api.mkverse.my.id/api/delete-photo.php
- * Field: id
+ * Content-Type: application/json
+ * Payload: { "id": Number(photo.id) }
  */
 export async function deletePhoto(id: string | number) {
-  console.log("[GALERI API] DELETE photo", id);
-  const formData = new FormData();
-  formData.append("id", String(id));
-  return apiRequest("delete-photo.php", "POST", formData, true, "[GALERI API] DELETE photo");
+  const numericId = Number(id);
+  console.log("[GALERI API] DELETE photo", { id: numericId });
+
+  try {
+    const url = `${API_BASE_URL}/delete-photo.php`;
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ id: numericId }),
+    });
+
+    const text = await res.text();
+    let result: any = null;
+    try {
+      result = JSON.parse(text);
+    } catch {
+      console.warn("[GALERI API] DELETE photo non-JSON response:", text);
+    }
+
+    console.log("[GALERI API] DELETE photo response", result || text);
+
+    if (!res.ok || result?.success !== true) {
+      const errMsg = result?.message || `HTTP Error ${res.status}: ${res.statusText}`;
+      console.error("[GALERI API] DELETE photo error", errMsg, result);
+      return { data: result, error: new Error(errMsg) };
+    }
+
+    return { data: result, error: null };
+  } catch (err: any) {
+    console.error("[GALERI API] DELETE photo error", err);
+    return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
+  }
 }
+
+/**
+ * 9. GET ACTIVITIES
+ * GET https://api.mkverse.my.id/api/activities.php
+ * Filter ?published=1 for public page
+ */
+export async function fetchActivities(publishedOnly: boolean = false) {
+  const query = publishedOnly ? "?published=1" : "";
+  console.log(`[GALERI API] GET activities${query}`);
+  const res = await apiRequest(
+    `activities.php${query}`,
+    "GET",
+    null,
+    false,
+    `[GALERI API] GET activities${query}`
+  );
+  console.log(`[GALERI API] GET activities response`, res.data || res.error);
+  return res;
+}
+
+/**
+ * 10. ADD ACTIVITY
+ * POST https://api.mkverse.my.id/api/add-activity.php
+ */
+export async function addActivity(data: {
+  title: string;
+  slug?: string;
+  description?: string;
+  category_id?: string | number | null;
+  event_date?: string;
+  cover_url?: string;
+  is_published?: number | boolean;
+  display_order?: number;
+} | FormData) {
+  if (data instanceof FormData) {
+    console.log("[GALERI API] ADD activity (FormData)");
+    const res = await apiRequest("add-activity.php", "POST", data, true, "[GALERI API] ADD activity");
+    console.log("[GALERI API] ADD activity response", res.data || res.error);
+    return res;
+  }
+
+  const payload = {
+    title: data.title.trim(),
+    slug: data.slug || data.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
+    description: data.description || "",
+    category_id: data.category_id ? Number(data.category_id) : null,
+    event_date: data.event_date || new Date().toISOString().split("T")[0],
+    cover_url: data.cover_url || "",
+    is_published: data.is_published === undefined ? 1 : (data.is_published ? 1 : 0),
+    display_order: Number(data.display_order ?? 0),
+  };
+
+  console.log("[GALERI API] ADD activity", payload);
+  const res = await apiRequest("add-activity.php", "POST", payload, false, "[GALERI API] ADD activity");
+  console.log("[GALERI API] ADD activity response", res.data || res.error);
+  return res;
+}
+
+/**
+ * 11. UPDATE ACTIVITY
+ * POST https://api.mkverse.my.id/api/update-activity.php
+ */
+export async function updateActivity(data: {
+  id: string | number;
+  title: string;
+  slug?: string;
+  description?: string;
+  category_id?: string | number | null;
+  event_date?: string;
+  cover_url?: string;
+  is_published?: number | boolean;
+  display_order?: number;
+} | FormData) {
+  if (data instanceof FormData) {
+    console.log("[GALERI API] UPDATE activity (FormData)");
+    return apiRequest("update-activity.php", "POST", data, true, "[GALERI API] UPDATE activity");
+  }
+
+  const payload = {
+    id: Number(data.id),
+    title: data.title.trim(),
+    slug: data.slug || data.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
+    description: data.description || "",
+    category_id: data.category_id ? Number(data.category_id) : null,
+    event_date: data.event_date || new Date().toISOString().split("T")[0],
+    cover_url: data.cover_url || "",
+    is_published: data.is_published === undefined ? 1 : (data.is_published ? 1 : 0),
+    display_order: Number(data.display_order ?? 0),
+  };
+
+  console.log("[GALERI API] UPDATE activity request", payload);
+  return apiRequest("update-activity.php", "POST", payload, false, "[GALERI API] UPDATE activity");
+}
+
+/**
+ * 12. DELETE ACTIVITY
+ * POST https://api.mkverse.my.id/api/delete-activity.php
+ */
+export async function deleteActivity(id: string | number) {
+  const numericId = Number(id);
+  console.log('[GALERI API] DELETE activity ID:', numericId);
+
+  try {
+    const url = `${API_BASE_URL}/delete-activity.php`;
+    console.log(`[GALERI API] DELETE activity -> Requesting ${url} with id:`, numericId);
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ id: numericId }),
+    });
+
+    const text = await res.text();
+    let result: any = null;
+    try {
+      result = JSON.parse(text);
+    } catch {
+      console.warn("[GALERI API] DELETE activity non-JSON response:", text);
+    }
+
+    console.log('[GALERI API] DELETE activity response status:', res.status, result);
+
+    if (
+      res.status === 404 ||
+      (result && result.success === false && result.message?.toLowerCase().includes("tidak ditemukan"))
+    ) {
+      console.log(`[GALERI API] Activity ID ${numericId} is already absent. Client state will synchronize.`);
+      return {
+        data: {
+          success: true,
+          message: "Data kegiatan telah dihapus dari daftar.",
+          data: { id: numericId },
+        },
+        error: null,
+      };
+    }
+
+    if (!res.ok || result?.success !== true) {
+      const errMsg = result?.message || `HTTP Error ${res.status}: ${res.statusText}`;
+      console.error("[GALERI API] DELETE activity error:", errMsg, result);
+      return { data: result, error: new Error(errMsg) };
+    }
+
+    return { data: result, error: null };
+  } catch (err: any) {
+    console.error("[GALERI API] DELETE activity exception:", err);
+    return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
+  }
+}
+

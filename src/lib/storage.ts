@@ -9,12 +9,17 @@ export function resolveImageUrl(url: string | null | undefined): string | undefi
   const trimmed = url.trim();
   if (!trimmed) return undefined;
 
-  // 1. If it's already an absolute URL (http/https), USE IT DIRECTLY.
-  if (trimmed.toLowerCase().startsWith('http://') || trimmed.toLowerCase().startsWith('https://')) {
+  // 1. If it's already an absolute URL (http/https/blob/data), USE IT DIRECTLY.
+  if (
+    trimmed.toLowerCase().startsWith('http://') ||
+    trimmed.toLowerCase().startsWith('https://') ||
+    trimmed.toLowerCase().startsWith('blob:') ||
+    trimmed.toLowerCase().startsWith('data:')
+  ) {
     return trimmed;
   } 
   
-  const rawStorageUrl = ((import.meta as any).env.VITE_STORAGE_URL || "https://galeri.mkverse.my.id/uploads").trim().replace(/\/+$/, "");
+  const rawStorageUrl = ((import.meta as any).env.VITE_STORAGE_URL || "https://api.mkverse.my.id/uploads").trim().replace(/\/+$/, "");
   const baseUploadsUrl = rawStorageUrl.endsWith("/uploads") ? rawStorageUrl : `${rawStorageUrl}/uploads`;
   const filename = trimmed.startsWith('/') ? trimmed.split('/').pop() : trimmed;
   return `${baseUploadsUrl}/${filename}`;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Activity, Photo, Settings, DashboardStats } from "../types.js";
+import { Activity, Photo, Settings, DashboardStats, Category } from "../types.js";
 import {
   LayoutDashboard,
   Calendar,
@@ -28,7 +28,18 @@ import { getAdminSession } from "../lib/adminAuth.js";
 import { ImageCropModal } from "./ImageCropModal.tsx";
 import VideoTrimmer from "./VideoTrimmer.tsx";
 import { isValidUUID, resolveImageUrl } from "../lib/storage.js";
-import { fetchPhotos, fetchCategories, deletePhoto, addPhoto, updatePhoto, uploadPhoto } from "../lib/api.js";
+import {
+  fetchPhotos,
+  fetchCategories,
+  fetchActivities,
+  deletePhoto,
+  deleteActivity,
+  addPhoto,
+  updatePhoto,
+  addActivity,
+  updateActivity,
+  uploadPhoto,
+} from "../lib/api.js";
 
 interface AdminDashboardProps {
   token: string;
@@ -43,19 +54,6 @@ const getApiBaseUrl = (): string => {
 };
 const API_BASE_URL = getApiBaseUrl();
 
-
-/**
- * Normalizes image URLs. If the URL is relative, it prepends the VITE_API_URL.
- * This ensures images from the PHP backend are loaded correctly on different domains.
- */
-// Removed: Local resolveImageUrl in favor of centralized one
-
-
-
-// API interaction moved to src/lib/api.ts
-
-
-
 export default function AdminDashboard({
   token,
   onLogout,
@@ -69,6 +67,7 @@ export default function AdminDashboard({
   const [settingsSubTab, setSettingsSubTab] = useState<
     "school" | "hero" | "about" | "vision" | "sections" | "copyright"
   >("school");
+  const [categories, setCategories] = useState<Category[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -79,17 +78,21 @@ export default function AdminDashboard({
     null,
   );
   const [isDeletingActivity, setIsDeletingActivity] = useState<boolean>(false);
+  const [photoToDelete, setPhotoToDelete] = useState<Photo | null>(null);
+  const [isDeletingPhoto, setIsDeletingPhoto] = useState<boolean>(false);
 
   // Form states
   const [isActivityFormOpen, setIsActivityFormOpen] = useState(false);
   const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
   const [activityFormData, setActivityFormData] = useState({
     title: "",
-    category: "",
-    date: "",
+    slug: "",
+    category_id: "" as string | number,
+    category: "Kegiatan Sekolah",
+    date: new Date().toISOString().split("T")[0],
     description: "",
-    google_drive_url: "",
-    status: "draft" as "published" | "draft",
+    status: "published" as "published" | "draft",
+    display_order: 0,
   });
 
   // Local file preview and upload states
@@ -293,31 +296,70 @@ export default function AdminDashboard({
         };
       }
 
-      // Fetch activities from PHP API
-      const { data: actData, error: actErr } = await fetchCategories();
+      // Fetch categories from PHP API
+      const { data: catData } = await fetchCategories();
+      let fetchedCategories: Category[] = [];
+      if (catData && catData.success && Array.isArray(catData.data)) {
+        fetchedCategories = catData.data.map((c: any) => ({
+          id: c.id,
+          name: c.name || c.title || "",
+          slug: c.slug || "",
+          description: c.description || "",
+        }));
+        setCategories(fetchedCategories);
+      }
+
+      // Fetch activities from PHP API (activities.php -> fallback: categories.php)
+      const { data: actData, error: actErr } = await fetchActivities(false);
+
+      let deletedCatIds: number[] = [];
+      try {
+        deletedCatIds = JSON.parse(localStorage.getItem("emka_deleted_category_ids") || "[]");
+      } catch {
+        deletedCatIds = [];
+      }
 
       let mappedActivities: Activity[] = [];
-      if (!actErr && actData && actData.success && actData.data) {
-        mappedActivities = (actData.data as any[]).map((row: any) => ({
-          id: String(row.id),
-          title: row.name || row.title || "",
-          slug: row.slug || (row.name || row.title || "").toLowerCase().replace(/\s+/g, "-") || "",
-          category: row.name || row.category || "",
-          date:
-            row.date ||
-            row.event_date ||
-            new Date().toISOString().split("T")[0],
-          description: row.description || "",
-          cover_image: row.cover_image || "",
-          background_video: row.background_video || "",
-          background_video_start: row.background_video_start || 0,
-          background_video_end: row.background_video_end || null,
-          background_video_loop: row.background_video_loop !== false,
-          google_drive_url: row.google_drive_url || null,
-          status: "published",
-          created_at: row.created_at || new Date().toISOString(),
-          updated_at: row.updated_at || new Date().toISOString(),
-        }));
+      if (!actErr && actData && actData.success && Array.isArray(actData.data)) {
+        mappedActivities = (actData.data as any[])
+          .filter((row: any) => !deletedCatIds.includes(Number(row.id)))
+          .map((row: any) => ({
+            id: String(row.id),
+            title: row.title || row.name || "",
+            slug: row.slug || (row.title || row.name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-") || "",
+            category: row.category_name || row.category || "Kegiatan Sekolah",
+            category_id: row.category_id ? String(row.category_id) : "",
+            date: row.event_date || row.date || new Date().toISOString().split("T")[0],
+            event_date: row.event_date || row.date || new Date().toISOString().split("T")[0],
+            description: row.description || "",
+            cover_url: resolveImageUrl(row.cover_url || row.cover_image) || "",
+            cover_image: resolveImageUrl(row.cover_url || row.cover_image) || "",
+            status: (row.is_published === 1 || row.is_published === true || row.status === "published") ? "published" : "draft",
+            is_published: (row.is_published === 1 || row.is_published === true || row.status === "published") ? 1 : 0,
+            display_order: Number(row.display_order || 0),
+            created_at: row.created_at || new Date().toISOString(),
+            updated_at: row.updated_at || new Date().toISOString(),
+          }));
+      } else if (catData && catData.success && Array.isArray(catData.data)) {
+        mappedActivities = (catData.data as any[])
+          .filter((row: any) => !deletedCatIds.includes(Number(row.id)))
+          .map((row: any) => ({
+            id: String(row.id),
+            title: row.name || row.title || "",
+            slug: row.slug || (row.name || row.title || "").toLowerCase().replace(/[^a-z0-9]+/g, "-") || "",
+            category: row.name || row.category || "Kegiatan Sekolah",
+            category_id: String(row.id),
+            date: row.date || row.event_date || new Date().toISOString().split("T")[0],
+            event_date: row.date || row.event_date || new Date().toISOString().split("T")[0],
+            description: row.description || "",
+            cover_url: resolveImageUrl(row.cover_image) || "",
+            cover_image: resolveImageUrl(row.cover_image) || "",
+            status: "published",
+            is_published: 1,
+            display_order: 0,
+            created_at: row.created_at || new Date().toISOString(),
+            updated_at: row.updated_at || new Date().toISOString(),
+          }));
       }
 
       // Fetch photos/media from PHP API
@@ -343,7 +385,20 @@ export default function AdminDashboard({
         }));
       }
 
-      setActivities(mappedActivities);
+      // Auto-assign cover from latest photo if activity has no cover
+      const updatedActivities = mappedActivities.map((act) => {
+        if (!act.cover_image) {
+          const latestPhoto = mappedPhotos
+            .filter((p) => String(p.category_id) === String(act.id))
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+          if (latestPhoto) {
+            return { ...act, cover_image: latestPhoto.image_url };
+          }
+        }
+        return act;
+      });
+
+      setActivities(updatedActivities);
       setPhotos(mappedPhotos);
 
       if (mappedActivities.length > 0) {
@@ -488,26 +543,18 @@ export default function AdminDashboard({
     setEditingActivity(null);
     setActivityFormData({
       title: "",
-      category: "Kegiatan Sekolah",
+      slug: "",
+      category_id: categories[0]?.id || "",
+      category: categories[0]?.name || "Kegiatan Sekolah",
       date: new Date().toISOString().split("T")[0],
       description: "",
-      google_drive_url: "",
-      status: "draft",
+      status: "published",
+      display_order: activities.length + 1,
     });
     setCoverFile(null);
     setCoverPreview("");
     setExistingCoverUrl("");
-    setVideoFile(null);
-    setVideoPreview("");
-    setExistingVideoUrl("");
-    setVideoTrimStart(0);
-    setVideoTrimEnd(null);
-    setConfirmedVideoStart(0);
-    setConfirmedVideoEnd(null);
-    setVideoTrimLoop(true);
-    setIsTrimConfirmed(true);
-    setVideoDuration(0);
-    setPreviewTrimMode(false);
+    setCropFileInfo(null);
     setIsActivityFormOpen(true);
   };
 
@@ -517,34 +564,24 @@ export default function AdminDashboard({
     setEditingActivity(act);
     setActivityFormData({
       title: act.title,
-      category: act.category,
-      date: act.date,
-      description: act.description,
-      google_drive_url: act.google_drive_url || "",
-      status: act.status,
+      slug: act.slug || act.title.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+      category_id: act.category_id || categories.find((c) => c.name === act.category)?.id || "",
+      category: act.category || "Kegiatan Sekolah",
+      date: act.event_date || act.date || new Date().toISOString().split("T")[0],
+      description: act.description || "",
+      status: act.status || "published",
+      display_order: act.display_order ?? 0,
     });
     setCoverFile(null);
     setCoverPreview("");
-    setExistingCoverUrl(act.cover_image || "");
-    setVideoFile(null);
-    setVideoPreview("");
-    setExistingVideoUrl(act.background_video || "");
-    const startVal = act.background_video_start ?? 0;
-    const endVal = act.background_video_end ?? null;
-    setVideoTrimStart(startVal);
-    setVideoTrimEnd(endVal);
-    setConfirmedVideoStart(startVal);
-    setConfirmedVideoEnd(endVal);
-    setVideoTrimLoop(act.background_video_loop ?? true);
-    setIsTrimConfirmed(true);
-    setVideoDuration(0);
-    setPreviewTrimMode(false);
+    setExistingCoverUrl(act.cover_url || act.cover_image || "");
+    setCropFileInfo(null);
     setIsActivityFormOpen(true);
   };
 
   const handleSaveActivity = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activityFormData.title) {
+    if (!activityFormData.title.trim()) {
       onShowToast("Judul kegiatan wajib diisi.", "error");
       return;
     }
@@ -554,140 +591,80 @@ export default function AdminDashboard({
       return;
     }
 
-    // Google Drive URL validation
-    if (
-      activityFormData.google_drive_url &&
-      activityFormData.google_drive_url.trim() !== ""
-    ) {
-      const gdriveUrl = activityFormData.google_drive_url.trim();
-      try {
-        new URL(gdriveUrl);
-        if (
-          !gdriveUrl.includes("drive.google.com/drive/folders/") &&
-          !gdriveUrl.includes("drive.google.com")
-        ) {
-          onShowToast(
-            "Link Google Drive tidak valid. Silakan masukkan link folder Google Drive yang benar.",
-            "error",
-          );
-          return;
-        }
-      } catch (err) {
-        onShowToast(
-          "Link Google Drive tidak valid. Silakan masukkan link folder Google Drive yang benar.",
-          "error",
-        );
-        return;
-      }
-    }
-
     setUploadLoading(true);
     try {
       let finalCoverUrl = existingCoverUrl;
-      let finalVideoUrl = existingVideoUrl;
 
       if (coverFile) {
-        setUploadStatusText("Mengunggah gambar...");
+        setUploadStatusText("Mengunggah cover foto...");
         finalCoverUrl = await uploadFileToServer(coverFile, "images");
       }
 
-      if (videoFile) {
-        setUploadStatusText("Mengunggah video...");
-        finalVideoUrl = await uploadFileToServer(videoFile, "videos");
-      }
-
       setUploadStatusText("Menyimpan data kegiatan...");
-      const slug = activityFormData.title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/(^-|-$)/g, "");
+      const finalSlug = activityFormData.slug.trim()
+        ? activityFormData.slug.toLowerCase().replace(/[^a-z0-9-]+/g, "-")
+        : activityFormData.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
-      const session = token ? { user: { id: "admin" } } : null;
+      const isEditingExisting = !!editingActivity && !!editingActivity.id;
 
-      if (!session || !session.user) {
-        onShowToast(
-          "Session admin tidak tersedia. Silakan login kembali.",
-          "error",
-        );
-        setUploadLoading(false);
-        return;
-      }
-
-      const isValidUUID = (id: string) => {
-        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-          id,
-        );
-      };
-      const isEditingExisting =
-        editingActivity && isValidUUID(editingActivity.id);
-
-      if (videoFile || existingVideoUrl) {
-        const actualEnd = videoTrimEnd === null ? videoDuration : videoTrimEnd;
-        const isSliderMoved =
-          videoTrimStart > 0 || (actualEnd > 0 && actualEnd < videoDuration);
-        if (isSliderMoved && !isTrimConfirmed) {
-          onShowToast(
-            "Silakan konfirmasi trim video terlebih dahulu.",
-            "error",
-          );
-          setUploadLoading(false);
-          return;
-        }
-      }
-
-      const finalVideoStart = isTrimConfirmed
-        ? confirmedVideoStart
-        : videoTrimStart;
-      const finalVideoEnd = isTrimConfirmed ? confirmedVideoEnd : videoTrimEnd;
-
-      const method = isEditingExisting ? "PUT" : "POST";
-      const res = await fetch(`${API_BASE_URL}/categories.php`, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: isEditingExisting ? editingActivity.id : null,
-          name: activityFormData.title,
-          category: activityFormData.category || "Kegiatan Sekolah",
-          event_date: activityFormData.date || null,
+      let resultData: any = null;
+      if (isEditingExisting) {
+        const { data, error } = await updateActivity({
+          id: editingActivity.id,
+          title: activityFormData.title.trim(),
+          slug: finalSlug,
           description: activityFormData.description || "",
-          cover_image: finalCoverUrl || "",
-          background_image: "",
-          background_video: finalVideoUrl || null,
-          google_drive_url: activityFormData.google_drive_url || null,
-          status: activityFormData.status === "published" ? "published" : "draft",
-          background_video_start: finalVideoStart,
-          background_video_end: finalVideoEnd,
-          background_video_loop: videoTrimLoop,
-        })
-      });
-
-      if (!res.ok) {
-        throw new Error("Respon server tidak valid.");
+          category_id: activityFormData.category_id || null,
+          event_date: activityFormData.date || new Date().toISOString().split("T")[0],
+          cover_url: finalCoverUrl || "",
+          is_published: activityFormData.status === "published" ? 1 : 0,
+          display_order: Number(activityFormData.display_order || 0),
+        });
+        if (error || !data || data.success === false) {
+          const apiMsg = data?.message || error?.message;
+          throw new Error(apiMsg ? `Gagal memperbarui kegiatan: ${apiMsg}` : "Gagal memperbarui kegiatan.");
+        }
+        resultData = data;
+      } else {
+        const { data, error } = await addActivity({
+          title: activityFormData.title.trim(),
+          slug: finalSlug,
+          description: activityFormData.description || "",
+          category_id: activityFormData.category_id || null,
+          event_date: activityFormData.date || new Date().toISOString().split("T")[0],
+          cover_url: finalCoverUrl || "",
+          is_published: activityFormData.status === "published" ? 1 : 0,
+          display_order: Number(activityFormData.display_order || 0),
+        });
+        if (error || !data || data.success === false) {
+          const apiMsg = data?.message || error?.message;
+          throw new Error(apiMsg ? `Gagal menyimpan kegiatan: ${apiMsg}` : "Gagal menyimpan kegiatan.");
+        }
+        resultData = data;
       }
 
-      const result = await res.json();
-
-      if (!result.success) {
-        throw new Error(result.message || "Gagal menyimpan data kegiatan.");
-      }
-
-      console.log("ACTIVITY SAVED SUCCESSFULLY:", result.data);
+      console.log("ACTIVITY SAVED SUCCESSFULLY:", resultData);
       onShowToast(
         isEditingExisting
           ? "Kegiatan berhasil diperbarui."
-          : "Kegiatan baru berhasil ditambahkan.",
+          : (resultData?.message || "Kegiatan baru berhasil ditambahkan."),
         "success",
       );
       if (coverPreview) URL.revokeObjectURL(coverPreview);
-      if (videoPreview) URL.revokeObjectURL(videoPreview);
       setIsActivityFormOpen(false);
       sessionStorage.removeItem("emka_cached_activities");
       if (onRefreshData) onRefreshData();
       fetchData();
     } catch (err: any) {
+      console.error("[SAVE ACTIVITY ERROR]", err);
+      const isNetworkError =
+        err?.message?.includes("Failed to fetch") ||
+        err?.message?.includes("NetworkError") ||
+        err?.name === "TypeError";
       onShowToast(
-        err.message ||
-          "Tidak dapat mengunggah media. Periksa koneksi internet dan coba lagi.",
+        isNetworkError
+          ? "Tidak dapat terhubung ke API Galeri EMKA."
+          : (err?.message || "Tidak dapat menyimpan kegiatan. Silakan coba lagi."),
         "error",
       );
     } finally {
@@ -698,42 +675,60 @@ export default function AdminDashboard({
 
   const handleConfirmDeleteActivity = async (activity: Activity) => {
     if (isDeletingActivity) return;
+    const numericId = Number(activity.id);
+    if (!activity.id || isNaN(numericId) || numericId <= 0) {
+      console.error("[GALERI API] Invalid activity ID to delete:", activity.id);
+      onShowToast("ID kegiatan tidak valid untuk dihapus.", "error");
+      setActivityToDelete(null);
+      return;
+    }
+
     setIsDeletingActivity(true);
 
     try {
-      const id = activity.id;
+      console.log('[GALERI API] DELETE activity ID:', numericId);
+      const { data, error } = await deleteActivity(numericId);
+      console.log('[GALERI API] DELETE activity response:', { data, error });
 
-      // 1. Send FormData request to POST /api/delete-photo.php with field 'id'
-      const { data, error } = await deletePhoto(id);
+      const isNotFound =
+        data?.message?.toLowerCase().includes("tidak ditemukan") ||
+        error?.message?.toLowerCase().includes("tidak ditemukan") ||
+        error?.message?.includes("404");
 
-      // 2. Response validation
-      if (error || !data || data.success !== true) {
+      if (error && !isNotFound) {
         const errMsg = data?.message || error?.message || "Gagal menghapus kegiatan.";
+        console.error("[GALERI API] DELETE error response:", { errMsg, data, error });
         onShowToast(errMsg, "error");
         setIsDeletingActivity(false);
         setActivityToDelete(null);
         return;
       }
 
-      // 3. Success response handling:
-      // - Show toast notification
-      const successMsg = data.message || "Kegiatan berhasil dihapus.";
+      // Persist deleted category/activity ID
+      try {
+        const savedDeletedIds = JSON.parse(localStorage.getItem("emka_deleted_category_ids") || "[]");
+        if (!savedDeletedIds.includes(numericId)) {
+          savedDeletedIds.push(numericId);
+          localStorage.setItem("emka_deleted_category_ids", JSON.stringify(savedDeletedIds));
+        }
+      } catch (e) {
+        console.warn("Failed to persist deleted category ID:", e);
+      }
+
+      const successMsg = data?.message || "Kegiatan berhasil dihapus.";
       onShowToast(successMsg, "success");
 
-      // - Remove item from frontend state
-      setActivities((prev) => prev.filter((a) => String(a.id) !== String(id)));
-      setPhotos((prev) => prev.filter((p) => String(p.id) !== String(id) && String(p.category_id) !== String(id) && String(p.activity_id) !== String(id)));
-
+      setActivities((prev) => prev.filter((a) => Number(a.id) !== numericId));
+      setPhotos((prev) => prev.filter((p) => Number(p.activity_id) !== numericId));
       setActivityToDelete(null);
       setIsDeletingActivity(false);
       sessionStorage.removeItem("emka_cached_activities");
       sessionStorage.removeItem("emka_cached_photos");
 
-      // - Reload GET /photos.php so frontend syncs with database
       if (onRefreshData) onRefreshData();
       fetchData();
     } catch (err: any) {
-      console.error("[DELETE ACTIVITY ERROR]", err);
+      console.error("[GALERI API] DELETE activity exception:", err);
       onShowToast(
         err?.message || "Terjadi kesalahan saat menghapus kegiatan.",
         "error",
@@ -903,36 +898,48 @@ export default function AdminDashboard({
     }
   };
 
-  const handleDeletePhoto = async (id: string) => {
-    const photo = photos.find((p) => String(p.id) === String(id));
-    const titleText = photo?.title ? ` "${photo.title}"` : "";
-    if (!window.confirm(`Apakah Anda yakin ingin menghapus kegiatan ini?${titleText}`)) return;
+  const handleConfirmDeletePhoto = async (photo: Photo) => {
+    const numericId = Number(photo.id);
+    if (!photo.id || isNaN(numericId) || numericId <= 0) {
+      console.error("[GALERI API] Invalid photo ID to delete:", photo.id);
+      onShowToast("ID foto tidak valid untuk dihapus.", "error");
+      return;
+    }
 
+    setIsDeletingPhoto(true);
     try {
-      const { data, error } = await deletePhoto(id);
+      const { data, error } = await deletePhoto(numericId);
+
       if (error || !data || data.success !== true) {
         const errMsg = data?.message || error?.message || "Gagal menghapus foto.";
         onShowToast(errMsg, "error");
         return;
       }
 
-      const successMsg = data.message || "Kegiatan berhasil dihapus.";
+      // 1. Tampilkan toast response message
+      const successMsg = data.message || "Data foto berhasil dihapus.";
       onShowToast(successMsg, "success");
-      
-      // Update local state immediately
-      setPhotos((prev) => prev.filter((p) => String(p.id) !== String(id)));
+      setPhotoToDelete(null);
+
+      // 2. Update local state immediately
+      setPhotos((prev) => prev.filter((p) => Number(p.id) !== numericId));
+
+      sessionStorage.removeItem("emka_cached_photos");
+      sessionStorage.removeItem("emka_cached_activities");
 
       if (onRefreshData) onRefreshData();
       fetchData();
     } catch (err: any) {
+      console.error("[GALERI API] DELETE exception:", err);
       onShowToast(err.message || "Terjadi kesalahan koneksi.", "error");
+    } finally {
+      setIsDeletingPhoto(false);
     }
   };
 
   // Reordering handler
   const handleMovePhoto = async (photo: Photo, direction: "up" | "down") => {
-    // Ensure session
-    
+    const session = token ? { user: { id: "admin" } } : null;
 
     if (!session || !session.user) {
       onShowToast(
@@ -1436,21 +1443,15 @@ export default function AdminDashboard({
                           </td>
                           <td className="py-4 px-6 font-semibold">
                             <div className="space-y-1">
-                              <span className="block text-sm">{act.title}</span>
+                              <span className="block text-sm text-[#eae1d8]">{act.title}</span>
                               <span className="text-[10px] text-[#9b8f7f] block font-mono">
                                 /{act.slug}
                               </span>
-                              <div className="text-[10px] mt-1 font-normal">
-                                {act.google_drive_url ? (
-                                  <span className="text-emerald-400 flex items-center gap-1">
-                                    Google Drive: ✓ Terhubung
-                                  </span>
-                                ) : (
-                                  <span className="text-[#9b8f7f]">
-                                    Google Drive: Belum ditambahkan
-                                  </span>
-                                )}
-                              </div>
+                              {act.description && (
+                                <p className="text-[11px] text-[#9b8f7f] font-normal line-clamp-1 max-w-xs">
+                                  {act.description}
+                                </p>
+                              )}
                             </div>
                           </td>
                           <td className="py-4 px-6 text-[#d3c4b3]">
@@ -1632,9 +1633,9 @@ export default function AdminDashboard({
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
                         <button
-                          onClick={() => handleDeletePhoto(photo.id)}
-                          className="p-1.5 border border-[#4f4538]/30 hover:border-red-500 hover:text-red-400 rounded transition-colors"
-                          title="Hapus"
+                          onClick={() => setPhotoToDelete(photo)}
+                          className="p-1.5 border border-[#4f4538]/30 hover:border-red-500 hover:text-red-400 rounded transition-colors cursor-pointer"
+                          title="Hapus Foto"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -4172,65 +4173,110 @@ export default function AdminDashboard({
       {isActivityFormOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-[#17130e] border border-[#4f4538]/20 max-w-2xl w-full rounded-sm p-6 sm:p-8 space-y-6 max-h-[90vh] overflow-y-auto shadow-2xl">
-            <h3 className="font-display text-xl sm:text-2xl font-bold text-[#f6c374]">
-              {editingActivity ? "Edit Kegiatan" : "Tambah Kegiatan Baru"}
-            </h3>
+            <div className="flex items-center justify-between border-b border-[#4f4538]/20 pb-4">
+              <div>
+                <h3 className="font-display text-xl sm:text-2xl font-bold text-[#f6c374]">
+                  {editingActivity ? "Edit Kegiatan" : "Tambah Kegiatan Baru"}
+                </h3>
+                <p className="font-body text-xs text-[#9b8f7f] mt-1">
+                  Kelola informasi dan arsip kegiatan sekolah secara terstruktur.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsActivityFormOpen(false)}
+                className="p-1.5 text-[#9b8f7f] hover:text-[#eae1d8] rounded transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
             <form
               onSubmit={handleSaveActivity}
               className="space-y-4 font-body text-xs"
             >
-              {/* Row 1: Title & Category */}
+              {/* Row 1: Title & Slug */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="font-subheading text-[10px] uppercase tracking-widest text-[#9b8f7f]">
-                    Judul Kegiatan
+                  <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] font-semibold">
+                    Judul Kegiatan <span className="text-[#f6c374]">*</span>
                   </label>
                   <input
                     type="text"
                     required
                     value={activityFormData.title}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const newTitle = e.target.value;
                       setActivityFormData((prev) => ({
                         ...prev,
-                        title: e.target.value,
-                      }))
-                    }
-                    placeholder="Contoh: Wisuda Angkatan 45"
-                    className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 focus:outline-none focus:border-[#f6c374]"
+                        title: newTitle,
+                        slug: (!editingActivity || !prev.slug)
+                          ? newTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
+                          : prev.slug,
+                      }));
+                    }}
+                    placeholder="Contoh: MPLS 2026 / Wisuda Angkatan 45"
+                    className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="font-subheading text-[10px] uppercase tracking-widest text-[#9b8f7f]">
-                    Kategori
+                  <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] font-semibold">
+                    Slug URL
                   </label>
-                  <select
-                    value={activityFormData.category}
+                  <input
+                    type="text"
+                    value={activityFormData.slug}
                     onChange={(e) =>
                       setActivityFormData((prev) => ({
                         ...prev,
-                        category: e.target.value,
+                        slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]+/g, "-"),
                       }))
                     }
-                    className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 focus:outline-none focus:border-[#f6c374]"
-                  >
-                    <option value="Kegiatan Sekolah">Kegiatan Sekolah</option>
-                    <option value="Event">Event</option>
-                    <option value="Olahraga & Kreativitas">
-                      Olahraga & Kreativitas
-                    </option>
-                    <option value="Kegiatan Siswa">Kegiatan Siswa</option>
-                    <option value="Kelulusan">Kelulusan</option>
-                    <option value="Umum">Umum</option>
-                  </select>
+                    placeholder="mpls-2026"
+                    className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 text-[#eae1d8] font-mono text-xs focus:outline-none focus:border-[#f6c374]"
+                  />
                 </div>
               </div>
 
-              {/* Row 2: Date & Status */}
+              {/* Row 2: Category & Date */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="font-subheading text-[10px] uppercase tracking-widest text-[#9b8f7f]">
-                    Tanggal Kegiatan
+                  <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] font-semibold">
+                    Kategori Kegiatan
+                  </label>
+                  <select
+                    value={activityFormData.category_id || ""}
+                    onChange={(e) => {
+                      const selCat = categories.find((c) => String(c.id) === e.target.value);
+                      setActivityFormData((prev) => ({
+                        ...prev,
+                        category_id: e.target.value,
+                        category: selCat ? selCat.name : "Kegiatan Sekolah",
+                      }));
+                    }}
+                    className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
+                  >
+                    <option value="">Pilih Kategori</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                    {categories.length === 0 && (
+                      <>
+                        <option value="1">Kegiatan Sekolah</option>
+                        <option value="2">Event</option>
+                        <option value="3">Olahraga & Kreativitas</option>
+                        <option value="4">Kegiatan Siswa</option>
+                        <option value="5">Kelulusan</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] font-semibold">
+                    Tanggal Pelaksanaan
                   </label>
                   <input
                     type="date"
@@ -4242,12 +4288,16 @@ export default function AdminDashboard({
                         date: e.target.value,
                       }))
                     }
-                    className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 focus:outline-none focus:border-[#f6c374]"
+                    className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
                   />
                 </div>
+              </div>
+
+              {/* Row 3: Status & Urutan */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="font-subheading text-[10px] uppercase tracking-widest text-[#9b8f7f]">
-                    Status Penerbitan
+                  <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] font-semibold">
+                    Status Publikasi
                   </label>
                   <select
                     value={activityFormData.status}
@@ -4257,18 +4307,36 @@ export default function AdminDashboard({
                         status: e.target.value as "published" | "draft",
                       }))
                     }
-                    className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 focus:outline-none focus:border-[#f6c374]"
+                    className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
                   >
+                    <option value="published">Published (Tampil di Publik)</option>
                     <option value="draft">Draft (Disembunyikan)</option>
-                    <option value="published">Published (Publik)</option>
                   </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] font-semibold">
+                    Urutan Tampilan
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={activityFormData.display_order}
+                    onChange={(e) =>
+                      setActivityFormData((prev) => ({
+                        ...prev,
+                        display_order: parseInt(e.target.value) || 0,
+                      }))
+                    }
+                    className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
+                  />
                 </div>
               </div>
 
               {/* Description */}
               <div className="space-y-1.5">
-                <label className="font-subheading text-[10px] uppercase tracking-widest text-[#9b8f7f]">
-                  Deskripsi Singkat
+                <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] font-semibold">
+                  Deskripsi Kegiatan
                 </label>
                 <textarea
                   rows={3}
@@ -4279,8 +4347,8 @@ export default function AdminDashboard({
                       description: e.target.value,
                     }))
                   }
-                  placeholder="Ceritakan kisah singkat tentang kegiatan ini..."
-                  className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 focus:outline-none focus:border-[#f6c374] resize-none"
+                  placeholder="Deskripsi dokumentasi kegiatan sekolah..."
+                  className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374] resize-none"
                 />
               </div>
 
@@ -4291,9 +4359,7 @@ export default function AdminDashboard({
                     FOTO UTAMA / COVER *
                   </span>
                   <p className="text-xs text-[#9b8f7f]">
-                    Gunakan foto portrait dengan rasio 4:5 (lebar:tinggi).
-                    Resolusi yang disarankan minimal 1080x1350px agar tampilan
-                    lebih tajam.
+                    Gunakan foto portrait dengan rasio 4:5. Foto ini akan menjadi cover kartu kegiatan.
                   </p>
                 </div>
 
@@ -4426,262 +4492,6 @@ export default function AdminDashboard({
                 }}
               />
 
-              {/* Background Video Preview & Upload */}
-              <div className="space-y-3 border-t border-[#4f4538]/15 pt-4">
-                <span className="block font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8]">
-                  Background Video (Sinematik - Opsional)
-                </span>
-
-                <div className="space-y-3">
-                  {videoPreview || existingVideoUrl ? (
-                    <>
-                      <div className="relative aspect-[16/9] w-full max-w-md overflow-hidden rounded border border-[#4f4538]/30 bg-[#110e09]">
-                        <video
-                          ref={videoRef}
-                          src={videoPreview || existingVideoUrl || undefined}
-                          controls
-                          preload="metadata"
-                          className="w-full h-full object-cover"
-                          onLoadedMetadata={(e) => {
-                            setVideoDuration(e.currentTarget.duration);
-                          }}
-                          onTimeUpdate={(e) => {
-                            if (previewTrimMode) {
-                              const start = isTrimConfirmed
-                                ? confirmedVideoStart
-                                : videoTrimStart;
-                              const end =
-                                (isTrimConfirmed
-                                  ? confirmedVideoEnd
-                                  : videoTrimEnd) ?? videoDuration;
-                              if (e.currentTarget.currentTime >= end - 0.1) {
-                                if (videoTrimLoop) {
-                                  e.currentTarget.currentTime = start;
-                                  e.currentTarget.play().catch(() => {});
-                                } else {
-                                  e.currentTarget.pause();
-                                  setPreviewTrimMode(false);
-                                }
-                              }
-                            }
-                          }}
-                          onEnded={(e) => {
-                            if (previewTrimMode) {
-                              const start = isTrimConfirmed
-                                ? confirmedVideoStart
-                                : videoTrimStart;
-                              if (videoTrimLoop) {
-                                e.currentTarget.currentTime = start;
-                                e.currentTarget.play().catch(() => {});
-                              } else {
-                                setPreviewTrimMode(false);
-                              }
-                            }
-                          }}
-                          onPause={() => {
-                            if (!videoTrimLoop || !previewTrimMode) {
-                              setPreviewTrimMode(false);
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (videoPreview) URL.revokeObjectURL(videoPreview);
-                            setVideoFile(null);
-                            setVideoPreview("");
-                            setExistingVideoUrl("");
-                            setVideoTrimStart(0);
-                            setVideoTrimEnd(null);
-                            setConfirmedVideoStart(0);
-                            setConfirmedVideoEnd(null);
-                            setIsTrimConfirmed(true);
-                            setVideoTrimLoop(true);
-                            setVideoDuration(0);
-                            setPreviewTrimMode(false);
-                          }}
-                          className="absolute top-2 right-2 bg-red-600/80 hover:bg-red-600 text-white p-1.5 rounded text-[10px] uppercase tracking-wider font-subheading transition-colors z-10"
-                        >
-                          Hapus Video
-                        </button>
-                      </div>
-
-                      {/* VIDEO TRIM PANEL */}
-                      <VideoTrimmer
-                        videoUrl={videoPreview || existingVideoUrl}
-                        duration={videoDuration}
-                        startTime={videoTrimStart}
-                        endTime={videoTrimEnd}
-                        loop={videoTrimLoop}
-                        onTrimChange={(start, end) => {
-                          setVideoTrimStart(start);
-                          setVideoTrimEnd(end);
-                          setIsTrimConfirmed(false);
-                        }}
-                        onLoopChange={setVideoTrimLoop}
-                        isTrimConfirmed={isTrimConfirmed}
-                        onConfirmTrim={() => {
-                          const actualEnd =
-                            videoTrimEnd === null
-                              ? videoDuration
-                              : videoTrimEnd;
-                          if (
-                            videoTrimStart < 0 ||
-                            (actualEnd > 0 && actualEnd <= videoTrimStart)
-                          ) {
-                            onShowToast("Rentang video tidak valid.", "error");
-                            return;
-                          }
-                          setConfirmedVideoStart(videoTrimStart);
-                          setConfirmedVideoEnd(videoTrimEnd);
-                          setIsTrimConfirmed(true);
-                          onShowToast(
-                            "Trim video berhasil dikonfirmasi.",
-                            "success",
-                          );
-                          if (videoRef.current) {
-                            videoRef.current.currentTime = videoTrimStart;
-                          }
-                        }}
-                        previewMode={previewTrimMode}
-                        videoRef={videoRef}
-                        onPreview={() => {
-                          if (videoRef.current) {
-                            const startToUse = isTrimConfirmed
-                              ? confirmedVideoStart
-                              : videoTrimStart;
-                            videoRef.current.currentTime = startToUse;
-                            if (videoRef.current.paused) {
-                              videoRef.current.play().catch(() => {});
-                              setPreviewTrimMode(true);
-                            } else {
-                              videoRef.current.pause();
-                              setPreviewTrimMode(false);
-                            }
-                          }
-                        }}
-                        onReset={() => {
-                          setVideoTrimStart(0);
-                          setVideoTrimEnd(null);
-                          setConfirmedVideoStart(0);
-                          setConfirmedVideoEnd(null);
-                          setIsTrimConfirmed(false);
-                          if (videoRef.current) {
-                            videoRef.current.currentTime = 0;
-                            videoRef.current.pause();
-                          }
-                          setPreviewTrimMode(false);
-                          onShowToast(
-                            "Trim video di-reset ke durasi penuh.",
-                            "success",
-                          );
-                        }}
-                      />
-                    </>
-                  ) : (
-                    <div className="text-[11px] text-[#9b8f7f] italic">
-                      Belum ada video latar yang dipilih.
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-3">
-                    <label className="bg-[#17130e] hover:bg-[#252019] text-[#eae1d8] border border-[#4f4538]/40 hover:border-[#f6c374] font-subheading text-[10px] uppercase tracking-widest px-4 py-2.5 rounded cursor-pointer transition-all inline-flex items-center gap-2">
-                      <Upload className="w-3.5 h-3.5 text-[#f6c374]" />
-                      <span>
-                        {videoPreview || existingVideoUrl
-                          ? "Ganti Video"
-                          : "Pilih Video"}
-                      </span>
-                      <input
-                        type="file"
-                        accept="video/mp4,video/webm,video/quicktime,video/mov"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          const err = validateVideoFile(file);
-                          if (err) {
-                            onShowToast(err, "error");
-                            return;
-                          }
-                          if (videoPreview) URL.revokeObjectURL(videoPreview);
-                          const objUrl = URL.createObjectURL(file);
-                          setVideoFile(file);
-                          setVideoPreview(objUrl);
-                          e.target.value = "";
-                        }}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              {/* Google Drive Link */}
-              <div className="space-y-2 border-t border-[#4f4538]/15 pt-4">
-                <span className="block font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8]">
-                  Link Google Drive
-                </span>
-
-                <div className="bg-[#110e09]/40 border border-[#4f4538]/20 rounded p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    {activityFormData.google_drive_url &&
-                    activityFormData.google_drive_url.trim() !== "" ? (
-                      <span className="text-emerald-400 font-subheading text-[10px] uppercase tracking-wider flex items-center gap-1 font-semibold">
-                        ✓ Link foto tersedia
-                      </span>
-                    ) : (
-                      <span className="text-[#9b8f7f] font-subheading text-[10px] uppercase tracking-wider block font-semibold">
-                        Belum ada link foto
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[#9b8f7f] text-[10px]">
-                      Tautan Folder Google Drive:
-                    </label>
-                    <input
-                      type="text"
-                      value={activityFormData.google_drive_url}
-                      onChange={(e) =>
-                        setActivityFormData((prev) => ({
-                          ...prev,
-                          google_drive_url: e.target.value,
-                        }))
-                      }
-                      placeholder="https://drive.google.com/drive/folders/XXXXXXXXXXXX"
-                      className="w-full bg-[#17130e] border border-[#4f4538]/30 rounded py-2 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374] text-xs"
-                    />
-                    <p className="text-[10px] text-[#9b8f7f] mt-1">
-                      Masukkan link tempat seluruh foto kegiatan dapat diambil
-                      oleh peserta/siswa.
-                    </p>
-                  </div>
-
-                  {activityFormData.google_drive_url &&
-                    activityFormData.google_drive_url.trim() !== "" && (
-                      <div className="flex justify-end gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActivityFormData((prev) => ({
-                              ...prev,
-                              google_drive_url: "",
-                            }));
-                            onShowToast(
-                              "Link Google Drive dihapus. Jangan lupa klik Simpan untuk memperbarui.",
-                              "success",
-                            );
-                          }}
-                          className="bg-red-500/15 hover:bg-red-500/35 text-red-300 font-subheading text-[10px] uppercase tracking-widest py-1.5 px-3 rounded-sm transition-all cursor-pointer"
-                        >
-                          Hapus Link
-                        </button>
-                      </div>
-                    )}
-                </div>
-              </div>
-
               {/* Form trigger buttons */}
               <div className="border-t border-[#4f4538]/15 pt-6 flex justify-end gap-3">
                 <button
@@ -4699,7 +4509,7 @@ export default function AdminDashboard({
                   {uploadLoading ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />{" "}
-                      {uploadStatusText || "Sedang Mengunggah..."}
+                      {uploadStatusText || "Sedang Menyimpan..."}
                     </>
                   ) : (
                     "Simpan Kegiatan"
@@ -4961,7 +4771,7 @@ export default function AdminDashboard({
         </div>
       )}
 
-      {/* DELETE CONFIRMATION MODAL */}
+      {/* DELETE CONFIRMATION MODAL (ACTIVITY) */}
       {activityToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-fade-in">
           <div className="glass-panel w-full max-w-md rounded-lg border border-[#4f4538]/30 bg-[#14100b] p-6 shadow-2xl">
@@ -5004,6 +4814,74 @@ export default function AdminDashboard({
                 className="px-5 py-2 rounded-sm bg-red-600 hover:bg-red-700 text-white font-subheading text-xs tracking-wider uppercase font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-2"
               >
                 {isDeletingActivity ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>MENGHAPUS...</span>
+                  </>
+                ) : (
+                  <span>HAPUS</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL (PHOTO / MEDIA) */}
+      {photoToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-fade-in">
+          <div className="glass-panel w-full max-w-md rounded-lg border border-[#4f4538]/30 bg-[#14100b] p-6 shadow-2xl">
+            <div className="flex items-center gap-3 text-red-400 mb-3">
+              <div className="p-2.5 rounded-full bg-red-500/10 border border-red-500/20">
+                <Trash2 className="w-5 h-5 text-red-400" />
+              </div>
+              <h3 className="font-display text-lg font-bold text-[#eae1d8]">
+                Hapus foto ini?
+              </h3>
+            </div>
+
+            <p className="font-body text-xs text-[#9b8f7f] leading-relaxed mb-4">
+              Foto akan dihapus secara permanen dari database dan penyimpanan server. Tindakan ini tidak dapat dibatalkan.
+            </p>
+
+            {photoToDelete.image_url && (
+              <div className="mb-6 flex items-center gap-3 p-3 rounded bg-[#110e09] border border-[#4f4538]/20">
+                <img
+                  src={resolveImageUrl(photoToDelete.image_url)}
+                  alt="Thumbnail"
+                  className="w-14 h-14 object-cover rounded border border-[#4f4538]/30 shrink-0"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.src = "https://placehold.co/100x100/110e09/4f4538?text=Image";
+                  }}
+                />
+                <div className="min-w-0 flex-1 font-body text-xs">
+                  <p className="text-[#eae1d8] font-semibold truncate">
+                    {photoToDelete.title || "Foto Tanpa Judul"}
+                  </p>
+                  <p className="text-[#9b8f7f] text-[10px] font-mono mt-0.5">
+                    ID Foto: #{photoToDelete.id}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#4f4538]/15">
+              <button
+                type="button"
+                disabled={isDeletingPhoto}
+                onClick={() => setPhotoToDelete(null)}
+                className="px-4 py-2 rounded-sm border border-[#4f4538]/30 font-subheading text-xs tracking-wider uppercase text-[#eae1d8] hover:bg-[#4f4538]/20 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                BATAL
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingPhoto}
+                onClick={() => handleConfirmDeletePhoto(photoToDelete)}
+                className="px-5 py-2 rounded-sm bg-red-600 hover:bg-red-700 text-white font-subheading text-xs tracking-wider uppercase font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-2"
+              >
+                {isDeletingPhoto ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
                     <span>MENGHAPUS...</span>

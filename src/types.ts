@@ -14,10 +14,16 @@ export interface Activity {
   id: string;
   title: string;
   slug: string;
-  category: string;
+  category?: string;
+  category_id?: string | number;
+  category_name?: string;
   date: string;
+  event_date?: string;
   description: string;
   cover_image: string;
+  cover_url?: string;
+  is_published?: number | boolean;
+  display_order?: number;
   background_video?: string;
   background_video_start?: number;
   background_video_end?: number | null;
@@ -31,7 +37,7 @@ export interface Activity {
 export interface Photo {
   id: string;
   category_id: string;
-  activity_id?: string; // For backward compatibility
+  activity_id?: string;
   title: string;
   image_url: string;
   description?: string;
@@ -42,7 +48,7 @@ export interface Photo {
   aspect_ratio?: string;
   created_at: string;
   updated_at: string;
-  activity?: Activity; // Attached during mapping (category)
+  activity?: Activity;
 }
 
 export interface SectionSetting {
