@@ -2275,7 +2275,7 @@ export default function AdminDashboard({
 
                     <div className="space-y-2 col-span-1 md:col-span-2">
                       <label className="block font-subheading text-[10px] tracking-widest uppercase text-[#9b8f7f]">
-                        Alamat Kampus Lengkap
+                        Alamat
                       </label>
                       <input
                         type="text"

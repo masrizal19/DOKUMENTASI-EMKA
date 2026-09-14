@@ -826,7 +826,7 @@ export default function App() {
                         <div className="glass-panel p-8 sm:p-12 rounded-sm border border-[#4f4538]/15 grid grid-cols-1 md:grid-cols-3 gap-8">
                           <div className="space-y-2">
                             <h4 className="font-display text-lg font-bold text-[#eae1d8] flex items-center gap-2">
-                              <MapPin className="w-5 h-5 text-[#f6c374]" /> Alamat Kampus
+                              <MapPin className="w-5 h-5 text-[#f6c374]" /> Alamat
                             </h4>
                             <p className="font-body text-xs text-[#d3c4b3] leading-relaxed">
                               {activeSettings.school_name || "SMK Multi Karya"}<br />
@@ -968,7 +968,7 @@ export default function App() {
             <div className="glass-panel p-8 sm:p-12 rounded-sm border border-[#4f4538]/15 grid grid-cols-1 md:grid-cols-3 gap-8">
               <div className="space-y-2">
                 <h4 className="font-display text-lg font-bold text-[#eae1d8] flex items-center gap-2">
-                  <MapPin className="w-5 h-5 text-[#f6c374]" /> Alamat Kampus
+                  <MapPin className="w-5 h-5 text-[#f6c374]" /> Alamat
                 </h4>
                 <p className="font-body text-xs text-[#d3c4b3] leading-relaxed">
                   {activeSettings.school_name || "SMK Multi Karya"}<br />
