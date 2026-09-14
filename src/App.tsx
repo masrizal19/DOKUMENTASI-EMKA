@@ -220,18 +220,6 @@ export default function App() {
           } else if (row.activity_title) {
             const foundByTitle = mappedActivities.find((a) => a.title.toLowerCase() === String(row.activity_title).toLowerCase());
             if (foundByTitle) resolvedActId = String(foundByTitle.id);
-          } else if (mappedActivities.length === 1) {
-            resolvedActId = String(mappedActivities[0].id);
-          } else if (row.category_id) {
-            const actById = mappedActivities.find((a) => String(a.id) === String(row.category_id));
-            if (actById) {
-              resolvedActId = String(actById.id);
-            } else {
-              const actsWithSameCat = mappedActivities.filter((a) => String(a.category_id) === String(row.category_id));
-              if (actsWithSameCat.length === 1) {
-                resolvedActId = String(actsWithSameCat[0].id);
-              }
-            }
           }
 
           return {
@@ -265,7 +253,7 @@ export default function App() {
           const updatedActivities = mappedActivities.map((act) => {
             if (!act.cover_image) {
               const latestPhoto = mappedPhotos
-                .filter((p) => String(p.category_id) === String(act.id))
+                .filter((p) => String(p.activity_id) === String(act.id))
                 .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
               
               if (latestPhoto) {
@@ -438,7 +426,60 @@ export default function App() {
   };
 
   const currentDetailActivity = activities.find((act) => act.slug === activeSlug);
-  const currentDetailPhotos = photos.filter((p) => String(p.category_id) === String(currentDetailActivity?.id));
+
+  // Dedicated state for activity detail photos fetched from GET /api/photos.php?activity_id={id}
+  const [detailActivityPhotos, setDetailActivityPhotos] = useState<Photo[] | null>(null);
+
+  useEffect(() => {
+    if (!currentDetailActivity?.id) {
+      setDetailActivityPhotos(null);
+      return;
+    }
+
+    let isMounted = true;
+    const fetchActivityPhotos = async () => {
+      try {
+        console.log(`[GALERI API] Fetching photos for activity_id: ${currentDetailActivity.id}`);
+        const res = await fetchPhotos(currentDetailActivity.id);
+        if (isMounted && res?.data?.success && Array.isArray(res.data.data)) {
+          const freshPhotos: Photo[] = (res.data.data as any[]).map((row: any) => ({
+            id: String(row.id),
+            category_id: String(row.category_id || ""),
+            activity_id: String(row.activity_id || currentDetailActivity.id),
+            title: row.title || row.description || "Foto Galeri",
+            image_url: row.image_url,
+            description: row.description || "",
+            event_date: row.event_date || "0000-00-00",
+            sort_order: parseInt(row.display_order) || 0,
+            is_featured: String(row.is_featured) === "1" || row.is_featured === true,
+            created_at: row.created_at || new Date().toISOString(),
+            updated_at: row.updated_at || new Date().toISOString()
+          }));
+          setDetailActivityPhotos(freshPhotos);
+
+          // Merge newly fetched photos into global photos list
+          setPhotos((prev) => {
+            const map = new Map(prev.map((p) => [p.id, p]));
+            freshPhotos.forEach((fp) => map.set(fp.id, fp));
+            return Array.from(map.values());
+          });
+        }
+      } catch (err) {
+        console.error(`[GALERI API] Failed to fetch photos for activity ${currentDetailActivity.id}:`, err);
+      }
+    };
+
+    fetchActivityPhotos();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentDetailActivity?.id]);
+
+  // Current detail photos strictly uses photo.activity_id === activity.id
+  const currentDetailPhotos = detailActivityPhotos !== null
+    ? detailActivityPhotos
+    : photos.filter((p) => String(p.activity_id) === String(currentDetailActivity?.id));
 
   // Active Site Settings Fallbacks
   const activeSettings: Settings = (settings || {

@@ -460,18 +460,6 @@ export default function AdminDashboard({
           } else if (row.activity_title) {
             const foundByTitle = mappedActivities.find((a) => a.title.toLowerCase() === String(row.activity_title).toLowerCase());
             if (foundByTitle) resolvedActId = String(foundByTitle.id);
-          } else if (mappedActivities.length === 1) {
-            resolvedActId = String(mappedActivities[0].id);
-          } else if (row.category_id) {
-            const actById = mappedActivities.find((a) => String(a.id) === String(row.category_id));
-            if (actById) {
-              resolvedActId = String(actById.id);
-            } else {
-              const actsWithSameCat = mappedActivities.filter((a) => String(a.category_id) === String(row.category_id));
-              if (actsWithSameCat.length === 1) {
-                resolvedActId = String(actsWithSameCat[0].id);
-              }
-            }
           }
 
           return {
@@ -497,7 +485,7 @@ export default function AdminDashboard({
       const updatedActivities = mappedActivities.map((act) => {
         if (!act.cover_image) {
           const latestPhoto = mappedPhotos
-            .filter((p) => String(p.category_id) === String(act.id))
+            .filter((p) => String(p.activity_id) === String(act.id))
             .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
           if (latestPhoto) {
             return { ...act, cover_image: latestPhoto.image_url };
@@ -998,9 +986,7 @@ export default function AdminDashboard({
       image_url: "",
       sort_order:
         photos.filter(
-          (p) =>
-            String(p.activity_id) === String(defaultActivityId) ||
-            String(p.category_id) === String(defaultActivityId)
+          (p) => String(p.activity_id) === String(defaultActivityId)
         ).length + 1,
     });
     setIsPhotoFormOpen(true);
@@ -1349,8 +1335,9 @@ export default function AdminDashboard({
       return;
     }
 
+    const targetActId = photo.activity_id || photo.category_id;
     const activityPhotos = photos
-      .filter((p) => String(p.category_id) === String(photo.category_id))
+      .filter((p) => String(p.activity_id || p.category_id) === String(targetActId))
       .sort((a, b) => a.sort_order - b.sort_order);
     const index = activityPhotos.findIndex((p) => p.id === photo.id);
 
@@ -1630,9 +1617,7 @@ export default function AdminDashboard({
     selectedActivityForPhotos === "all"
       ? photos
       : photos.filter(
-          (p) =>
-            String(p.activity_id) === String(selectedActivityForPhotos) ||
-            String(p.category_id) === String(selectedActivityForPhotos)
+          (p) => String(p.activity_id) === String(selectedActivityForPhotos)
         );
 
   // Group photos by activity name
