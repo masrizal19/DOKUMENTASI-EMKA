@@ -15,7 +15,7 @@ import { Calendar, Tag, Shield, Clock, BookOpen, MapPin, Mail, Phone, ExternalLi
 import { fallbackData } from "./lib/fallbackData.js";
 import { resolveImageUrl } from "./lib/storage.js";
 import { getAdminSession, isAdminAuthenticated, performAdminLogout } from "./lib/adminAuth.js";
-import { fetchPhotos, fetchCategories, fetchSettings, fetchActivities } from "./lib/api.js";
+import { fetchPhotos, fetchCategories, fetchSettings, fetchActivities, fetchVisionMission } from "./lib/api.js";
 
 export default function App() {
   // Public data state
@@ -69,58 +69,95 @@ export default function App() {
       }
 
       // Fetch in parallel via centralized API
-      const [settingsRes, activitiesRes, categoriesRes, photosRes] = await Promise.all([
+      const [settingsRes, activitiesRes, categoriesRes, photosRes, vmRes] = await Promise.all([
         fetchSettings().catch(() => ({ data: null, error: null })),
         fetchActivities(true).catch(() => ({ data: null, error: null })),
         fetchCategories().catch(() => ({ data: null, error: null })),
         fetchPhotos().catch(() => ({ data: null, error: null })),
+        fetchVisionMission().catch(() => ({ data: null, error: null })),
       ]);
 
       let activeSet: Settings | null = null;
       if (settingsRes?.data?.success && settingsRes.data.data) {
-        const raw = settingsRes.data.data as any;
+        const rawData = settingsRes.data.data;
+        const settingsMap: Record<string, any> = {};
+        if (Array.isArray(rawData)) {
+          rawData.forEach((item: any) => {
+            if (item && item.setting_key) {
+              settingsMap[item.setting_key] = item.setting_value;
+            }
+          });
+        } else if (typeof rawData === "object" && rawData !== null) {
+          Object.assign(settingsMap, rawData);
+        }
+
+        // Parse missions from vision-mission.php or fallback
+        let parsedMissions: string[] = [];
+        if (vmRes?.data?.success && Array.isArray(vmRes.data.data) && vmRes.data.data.length > 0) {
+          const sortedVm = [...vmRes.data.data].sort((a: any, b: any) => Number(a.display_order || 0) - Number(b.display_order || 0));
+          parsedMissions = sortedVm.map((item: any) => item.content || item.title || "");
+        } else if (settingsMap.vision_content) {
+          parsedMissions = settingsMap.vision_content.split("\n").map((s: string) => s.trim()).filter(Boolean);
+        } else if (Array.isArray((fallbackData.settings as any)?.missions)) {
+          parsedMissions = (fallbackData.settings as any).missions;
+        }
+
+        // Parse homepage photo IDs
+        let selectedPhotoIds: string[] = [];
+        if (settingsMap.homepage_selected_photo_ids) {
+          try {
+            const parsed = typeof settingsMap.homepage_selected_photo_ids === "string"
+              ? JSON.parse(settingsMap.homepage_selected_photo_ids)
+              : settingsMap.homepage_selected_photo_ids;
+            selectedPhotoIds = Array.isArray(parsed) ? parsed.map(String) : [];
+          } catch {
+            selectedPhotoIds = [];
+          }
+        }
+
         activeSet = {
-          site_name: raw.site_name || "GALERI EMKA",
-          logo: raw.logo || "",
-          whatsapp: raw.whatsapp || "628123456789",
-          accent_color: raw.accent_color || "#f6c374",
-          updated_at: raw.updated_at || new Date().toISOString(),
-          school_name: raw.school_name || "SMK Multi Karya",
-          address: raw.address || "Jl. SMK Multi Karya No. 45",
-          city: raw.city || "Medan",
-          province: raw.province || "Sumatera Utara",
-          country: raw.country || "Indonesia",
-          email: raw.email || "info@multikarya.sch.id",
-          phone: raw.phone || "(061) 1234567",
-          tata_usaha: raw.tata_usaha || "Senin - Sabtu",
-          whatsapp_title: raw.whatsapp_title || "Narahubung Cepat",
-          whatsapp_description: raw.whatsapp_description || "Hubungi admin secara langsung melalui WhatsApp.",
-          about_title: raw.about_title || "Mengabadikan Jejak, Mengukir Kenangan Sinematik",
-          about_desc1: raw.about_desc1 || "Galeri EMKA adalah wadah dokumentasi visual.",
-          about_desc2: raw.about_desc2 || "Kami tidak hanya mengambil foto.",
-          about_photo: raw.about_photo || "",
-          vision_title: raw.vision_title || "Visi & Seni Visual",
-          vision_content: raw.vision_content || "Menjadi pusat dokumentasi visual sekolah.",
-          missions: raw.missions || [],
-          hero_label: raw.hero_label || "DOKUMENTASI SINEMATIK",
-          hero_title: raw.hero_title || "GALERI EMKA",
-          hero_description: raw.hero_description || "Elevating School Memories into Fine-Art Archives.",
-          hero_image: raw.hero_image || "",
-          hero_video: raw.hero_video || "",
-          hero_source: raw.hero_source || "auto",
-          sections: raw.sections || [],
-          enable_kegiatan_page: raw.enable_kegiatan_page ?? true,
-          enable_foto_terbaru_page: raw.enable_foto_terbaru_page ?? true,
-          homepage_gallery_limit: typeof raw.homepage_gallery_limit === "number" ? raw.homepage_gallery_limit : 6,
-          homepage_gallery_photo_ids: Array.isArray(raw.homepage_gallery_photo_ids) ? raw.homepage_gallery_photo_ids : [],
-          slideshow_duration: raw.slideshow_duration ?? 5,
-          slideshow_transition: raw.slideshow_transition ?? "Fade",
-          slideshow_blur: raw.slideshow_blur ?? 35,
-          slideshow_source: raw.slideshow_source || "latest",
-          slideshow_limit: typeof raw.slideshow_limit === "number" ? raw.slideshow_limit : 5,
-          slideshow_gallery_ids: Array.isArray(raw.slideshow_gallery_ids) ? raw.slideshow_gallery_ids : [],
-          copyright_year: raw.copyright_year || "2026",
-          copyright_author: raw.copyright_author || ""
+          site_name: settingsMap.site_name || "Galeri EMKA",
+          logo: settingsMap.school_logo_url || "",
+          whatsapp: settingsMap.whatsapp_number || "628123456789",
+          accent_color: settingsMap.accent_color || "#f6c374",
+          updated_at: settingsMap.updated_at || new Date().toISOString(),
+          school_name: settingsMap.school_name || "SMK Multi Karya",
+          address: settingsMap.school_address || "Jl. SMK Multi Karya No. 45",
+          city: settingsMap.city || "Medan",
+          province: settingsMap.province || "Sumatera Utara",
+          country: settingsMap.country || "Indonesia",
+          email: settingsMap.email || "info@multikarya.sch.id",
+          phone: settingsMap.phone || "(061) 1234567",
+          tata_usaha: settingsMap.office_hours || "Senin - Sabtu",
+          whatsapp_title: settingsMap.whatsapp_label || "Narahubung Cepat",
+          whatsapp_description: settingsMap.whatsapp_description || "Hubungi admin secara langsung melalui WhatsApp.",
+          about_title: settingsMap.about_title || "Tentang Kami & Filosofi Sekolah",
+          about_desc1: settingsMap.about_description_1 || "",
+          about_desc2: settingsMap.about_description_2 || "",
+          about_photo: settingsMap.about_image_url || "",
+          vision_title: settingsMap.vision_title || "Visi & Misi Sekolah",
+          vision_content: settingsMap.vision_content || "",
+          missions: parsedMissions,
+          hero_label: settingsMap.hero_label || "DOKUMENTASI SINEMATIK",
+          hero_title: settingsMap.hero_title || "GALERI EMKA",
+          hero_description: settingsMap.hero_description || "Elevating School Memories into Fine-Art Archives.",
+          hero_image: settingsMap.hero_image || "",
+          hero_video: settingsMap.hero_video || "",
+          hero_source: settingsMap.hero_display_mode === "manual" ? "manual" : "auto",
+          hero_activity_id: settingsMap.hero_manual_activity_id ? String(settingsMap.hero_manual_activity_id) : "",
+          sections: ((fallbackData.settings as any)?.sections as SectionSetting[]) || [],
+          enable_kegiatan_page: settingsMap.homepage_active_activities === "0" || settingsMap.homepage_active_activities === 0 ? false : true,
+          enable_foto_terbaru_page: settingsMap.homepage_active_latest_photos === "0" || settingsMap.homepage_active_latest_photos === 0 ? false : true,
+          homepage_gallery_limit: settingsMap.homepage_photo_limit !== undefined && settingsMap.homepage_photo_limit !== "" ? Number(settingsMap.homepage_photo_limit) : 6,
+          homepage_gallery_photo_ids: selectedPhotoIds,
+          slideshow_duration: settingsMap.slideshow_duration !== undefined && settingsMap.slideshow_duration !== "" ? Number(settingsMap.slideshow_duration) : 5,
+          slideshow_transition: settingsMap.slideshow_transition || "Fade",
+          slideshow_blur: settingsMap.slideshow_blur !== undefined && settingsMap.slideshow_blur !== "" ? Number(settingsMap.slideshow_blur) : 35,
+          slideshow_source: (settingsMap.slideshow_source as any) || "latest",
+          slideshow_limit: settingsMap.slideshow_limit !== undefined && settingsMap.slideshow_limit !== "" ? Number(settingsMap.slideshow_limit) : 5,
+          slideshow_gallery_ids: [],
+          copyright_year: settingsMap.copyright_year || "2026",
+          copyright_author: settingsMap.copyright_creator || ""
         };
       }
 

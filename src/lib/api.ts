@@ -166,7 +166,55 @@ export async function addCategory(data: {
  */
 export async function fetchSettings() {
   console.log("[GALERI API] GET settings");
-  return apiRequest("settings.php", "GET", null, false, "[GALERI API] GET settings");
+  const res = await apiRequest("settings.php", "GET", null, false, "[GALERI API] GET settings");
+  if (res.data) {
+    console.log("[GALERI SETTINGS] LOAD", res.data);
+  }
+  return res;
+}
+
+/**
+ * 3b. SAVE SETTINGS
+ * POST https://api.mkverse.my.id/api/save-settings.php
+ */
+export async function saveSettings(payload: Record<string, any>) {
+  console.log("[GALERI SETTINGS] SAVE PAYLOAD", payload);
+  const res = await apiRequest("save-settings.php", "POST", payload, false, "[GALERI API] SAVE settings");
+  console.log("[GALERI SETTINGS] SAVE RESPONSE", res.data || res.error);
+  return res;
+}
+
+/**
+ * 3c. GET VISION & MISSION
+ * GET https://api.mkverse.my.id/api/vision-mission.php
+ */
+export async function fetchVisionMission() {
+  console.log("[GALERI API] GET vision-mission");
+  return apiRequest("vision-mission.php", "GET", null, false, "[GALERI API] GET vision-mission");
+}
+
+/**
+ * 3d. SAVE VISION & MISSION ITEM
+ * POST https://api.mkverse.my.id/api/vision-mission.php
+ */
+export async function saveVisionMission(item: {
+  id?: number | string;
+  title: string;
+  content: string;
+  display_order?: number;
+  is_active?: number;
+}) {
+  console.log("[GALERI API] SAVE vision-mission", item);
+  return apiRequest("vision-mission.php", "POST", item, false, "[GALERI API] SAVE vision-mission");
+}
+
+/**
+ * 3e. DELETE VISION & MISSION ITEM
+ * POST https://api.mkverse.my.id/api/vision-mission.php
+ */
+export async function deleteVisionMission(id: number | string) {
+  console.log("[GALERI API] DELETE vision-mission", id);
+  return apiRequest("vision-mission.php", "POST", { action: "delete", id: Number(id) }, false, "[GALERI API] DELETE vision-mission");
 }
 
 /**
