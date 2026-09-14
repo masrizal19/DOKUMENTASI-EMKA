@@ -1,14 +1,15 @@
 -- ==========================================================
--- MIGRATION: SISTEM KEGIATAN GALERI EMKA (PHP + MySQL)
+-- MIGRATION: SISTEM KEGIATAN & FOTO GALERI EMKA (PHP + MySQL)
 -- Database: mkversem_galeriemka
 -- Server API: https://api.mkverse.my.id/api/
 -- ==========================================================
 
--- 1. Buat Tabel `activities`
+-- 1. Buat / Update Tabel `activities`
 CREATE TABLE IF NOT EXISTS `activities` (
   `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   `title` VARCHAR(200) NOT NULL,
   `slug` VARCHAR(220) NOT NULL UNIQUE,
+  `google_drive_url` VARCHAR(500) NULL,
   `description` TEXT NULL,
   `category_id` INT UNSIGNED NULL,
   `event_date` DATE NULL,
@@ -23,8 +24,12 @@ CREATE TABLE IF NOT EXISTS `activities` (
   INDEX `idx_activities_slug` (`slug`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 2. Tambah kolom `activity_id` pada tabel `photos` jika belum ada
--- Jalankan perintah ini di phpMyAdmin / MySQL CLI database mkversem_galeriemka:
+-- Jika tabel `activities` sudah ada, tambahkan kolom `google_drive_url`:
+ALTER TABLE `activities` 
+  ADD COLUMN IF NOT EXISTS `google_drive_url` VARCHAR(500) NULL AFTER `slug`;
+
+-- 2. Tambah kolom `activity_id` pada tabel `photos` dengan Relasi Foreign Key
 ALTER TABLE `photos` 
   ADD COLUMN IF NOT EXISTS `activity_id` INT UNSIGNED NULL AFTER `category_id`,
   ADD INDEX IF NOT EXISTS `idx_photos_activity` (`activity_id`);
+

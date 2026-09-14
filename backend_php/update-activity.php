@@ -35,6 +35,7 @@ if ($id <= 0) {
 }
 
 $title = isset($data['title']) ? trim($data['title']) : '';
+$google_drive_url = isset($data['google_drive_url']) ? (!empty(trim($data['google_drive_url'])) ? trim($data['google_drive_url']) : null) : null;
 $description = isset($data['description']) ? trim($data['description']) : '';
 $category_id = !empty($data['category_id']) ? (int) $data['category_id'] : null;
 $event_date = !empty($data['event_date']) ? trim($data['event_date']) : (!empty($data['date']) ? trim($data['date']) : date('Y-m-d'));
@@ -63,7 +64,7 @@ $finalSlug = $baseSlug;
 
 try {
     // Check if activity exists
-    $checkStmt = $pdo->prepare("SELECT id, cover_url FROM activities WHERE id = ? LIMIT 1");
+    $checkStmt = $pdo->prepare("SELECT id, cover_url, google_drive_url FROM activities WHERE id = ? LIMIT 1");
     $checkStmt->execute([$id]);
     $existing = $checkStmt->fetch();
 
@@ -81,6 +82,10 @@ try {
         $cover_url = $existing['cover_url'];
     }
 
+    if (!isset($data['google_drive_url'])) {
+        $google_drive_url = $existing['google_drive_url'];
+    }
+
     // Ensure slug is unique excluding current activity
     $stmtSlug = $pdo->prepare("SELECT id FROM activities WHERE slug = ? AND id != ? LIMIT 1");
     $stmtSlug->execute([$finalSlug, $id]);
@@ -94,6 +99,7 @@ try {
     $sql = "UPDATE activities SET
                 title = :title,
                 slug = :slug,
+                google_drive_url = :google_drive_url,
                 description = :description,
                 category_id = :category_id,
                 event_date = :event_date,
@@ -107,6 +113,7 @@ try {
     $stmt->execute([
         ':title' => $title,
         ':slug' => $finalSlug,
+        ':google_drive_url' => $google_drive_url,
         ':description' => $description,
         ':category_id' => $category_id,
         ':event_date' => $event_date,
@@ -123,6 +130,7 @@ try {
             'id' => $id,
             'title' => $title,
             'slug' => $finalSlug,
+            'google_drive_url' => $google_drive_url,
             'description' => $description,
             'category_id' => $category_id,
             'event_date' => $event_date,

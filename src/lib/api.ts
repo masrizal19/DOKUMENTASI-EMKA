@@ -109,10 +109,12 @@ export async function apiRequest<T = any>(
 /**
  * 1. GET PHOTOS
  * GET https://api.mkverse.my.id/api/photos.php
+ * Optional: ?activity_id=1
  */
-export async function fetchPhotos() {
-  console.log("[GALERI API] GET photos");
-  return apiRequest("photos.php", "GET", null, false, "[GALERI API] GET photos");
+export async function fetchPhotos(activityId?: string | number) {
+  const query = activityId && activityId !== "all" ? `?activity_id=${encodeURIComponent(activityId)}` : "";
+  console.log(`[GALERI API] GET photos${query}`);
+  return apiRequest(`photos.php${query}`, "GET", null, false, `[GALERI API] GET photos${query}`);
 }
 
 /**
@@ -120,8 +122,40 @@ export async function fetchPhotos() {
  * GET https://api.mkverse.my.id/api/categories.php
  */
 export async function fetchCategories() {
-  console.log("[GALERI API] GET categories");
-  return apiRequest("categories.php", "GET", null, false, "[GALERI API] GET categories");
+  const url = `${API_BASE_URL}/categories.php`;
+  console.log(`[GALERI API] GET categories → Requesting ${url}`);
+  const res = await apiRequest("categories.php", "GET", null, false, "[GALERI API] GET categories");
+  if (res.data && res.data.success) {
+    console.log("[GALERI API] GET categories → Success");
+    console.log("[GALERI API] Categories loaded:", res.data.data);
+  } else if (res.error) {
+    console.error("[GALERI API] GET categories error:", res.error.message);
+  }
+  return res;
+}
+
+/**
+ * 2b. ADD CATEGORY
+ * POST https://api.mkverse.my.id/api/add-category.php
+ */
+export async function addCategory(data: {
+  name: string;
+  slug?: string;
+  description?: string;
+  display_order?: number;
+  is_active?: number;
+}) {
+  const payload = {
+    name: data.name.trim(),
+    slug: data.slug || data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
+    description: data.description || "",
+    display_order: Number(data.display_order ?? 0),
+    is_active: data.is_active === undefined ? 1 : Number(data.is_active),
+  };
+  console.log("[GALERI API] ADD category", payload);
+  const res = await apiRequest("add-category.php", "POST", payload, false, "[GALERI API] ADD category");
+  console.log("[GALERI API] ADD category response", res.data || res.error);
+  return res;
 }
 
 /**
@@ -153,64 +187,128 @@ export async function loginAdmin(username: string, password: string) {
 }
 
 /**
- * 5. UPLOAD IMAGE
+ * 5. UPLOAD MEDIA (PHOTO & VIDEO)
  * POST https://api.mkverse.my.id/api/upload.php
- * Payload: FormData with 'file' field
+ * Supports onProgress callback (0% - 100%) and large files without client size limits
  */
-export async function uploadPhoto(file: File): Promise<{ data: any; error: Error | null; url?: string }> {
+export async function uploadPhoto(
+  file: File,
+  onProgress?: (percent: number) => void
+): Promise<{ data: any; error: Error | null; url?: string }> {
   console.log("[GALERI API] Upload request", {
     name: file?.name,
     type: file?.type,
     size: file?.size,
   });
 
-  try {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
     const formData = new FormData();
     formData.append("file", file);
 
-    const uploadResponse = await fetch(`${API_BASE_URL}/upload.php`, {
-      method: "POST",
-      body: formData,
-    });
+    xhr.open("POST", `${API_BASE_URL}/upload.php`, true);
 
-    const uploadText = await uploadResponse.text();
-    let uploadResult: any;
+    // Set timeout to 1 hour (3600000 ms) for large video/image transfers
+    xhr.timeout = 3600000;
 
-    try {
-      uploadResult = JSON.parse(uploadText);
-    } catch {
-      throw new Error(`Upload API mengembalikan response bukan JSON: ${uploadText}`);
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          onProgress(percent);
+        }
+      };
     }
 
-    console.log("[GALERI API] Upload response", uploadResult);
+    xhr.onload = () => {
+      try {
+        const text = xhr.responseText;
+        let result: any = null;
+        try {
+          result = JSON.parse(text);
+        } catch {
+          resolve({
+            data: null,
+            error: new Error(
+              `Upload API mengembalikan response bukan JSON (status ${xhr.status}): ${text.substring(0, 300)}`
+            ),
+            url: undefined,
+          });
+          return;
+        }
 
-    if (uploadResult?.success !== true) {
-      const msg = uploadResult?.message || "Upload gambar gagal.";
-      return { data: uploadResult, error: new Error(msg), url: undefined };
-    }
+        console.log("[GALERI API] Upload response", result);
 
-    const imageUrl = uploadResult?.data?.url;
-    if (!imageUrl) {
-      return { data: uploadResult, error: new Error("URL gambar tidak ditemukan dalam response upload."), url: undefined };
-    }
+        if (xhr.status >= 200 && xhr.status < 300 && result?.success === true) {
+          const fileUrl = result?.data?.url;
+          if (!fileUrl) {
+            resolve({
+              data: result,
+              error: new Error("URL berkas tidak ditemukan dalam respons upload server."),
+              url: undefined,
+            });
+            return;
+          }
+          if (onProgress) onProgress(100);
+          resolve({ data: result, error: null, url: fileUrl });
+        } else {
+          const detail = result?.error ? ` [${result.error}]` : "";
+          const msg =
+            result?.message ||
+            `Upload gagal dengan kode status HTTP ${xhr.status}${detail}`;
+          resolve({ data: result, error: new Error(msg), url: undefined });
+        }
+      } catch (err: any) {
+        console.error("[GALERI API] Upload exception:", err);
+        resolve({
+          data: null,
+          error: err instanceof Error ? err : new Error(String(err)),
+          url: undefined,
+        });
+      }
+    };
 
-    return { data: uploadResult, error: null, url: imageUrl };
-  } catch (err: any) {
-    console.error("[GALERI API] Upload exception:", err);
-    return { data: null, error: err instanceof Error ? err : new Error(String(err)), url: undefined };
-  }
+    xhr.onerror = () => {
+      console.error("[GALERI API] Upload network error");
+      resolve({
+        data: null,
+        error: new Error("Gagal terhubung ke server upload (koneksi jaringan terputus atau CORS error)."),
+        url: undefined,
+      });
+    };
+
+    xhr.ontimeout = () => {
+      console.error("[GALERI API] Upload timed out");
+      resolve({
+        data: null,
+        error: new Error("Waktu unggah berkas melebihi batas waktu (timeout)."),
+        url: undefined,
+      });
+    };
+
+    xhr.send(formData);
+  });
 }
 
 /**
- * 6. ADD PHOTO / KEGIATAN
+ * 5b. GET PHP UPLOAD CONFIG
+ * GET https://api.mkverse.my.id/api/upload.php
+ */
+export async function fetchUploadConfig(): Promise<{ data: any; error: Error | null }> {
+  return apiRequest("upload.php", "GET", null, false, "[GALERI API] GET upload config");
+}
+
+/**
+ * 6. ADD PHOTO
  * POST https://api.mkverse.my.id/api/add-photo.php
- * JSON Payload: { title, description, image_url, category_id, event_date, is_featured, display_order }
+ * JSON Payload: { title, description, image_url, category_id, activity_id, event_date, is_featured, display_order }
  */
 export async function addPhoto(data: {
-  title: string;
+  title?: string;
   description?: string;
   image_url: string;
-  category_id: string | number;
+  category_id?: string | number;
+  activity_id?: string | number | null;
   event_date?: string;
   is_featured?: number | boolean;
   display_order?: number;
@@ -222,17 +320,27 @@ export async function addPhoto(data: {
     return res;
   }
 
+  // Safe title fallback so title is never empty
+  const safeTitle =
+    (typeof data.title === "string" ? data.title.trim() : "") || "Foto Kegiatan";
+
   const payload = {
-    title: data.title || "",
+    title: safeTitle,
     description: data.description || "",
     image_url: data.image_url || "",
-    category_id: Number(data.category_id || 1),
+    category_id: data.category_id ? Number(data.category_id) : 1,
+    activity_id:
+      data.activity_id !== undefined &&
+      data.activity_id !== null &&
+      data.activity_id !== ""
+        ? Number(data.activity_id)
+        : null,
     event_date: data.event_date || new Date().toISOString().split("T")[0],
     is_featured: data.is_featured ? 1 : 0,
-    display_order: Number(data.display_order ?? 1),
+    display_order: Number(data.display_order ?? 0),
   };
 
-  console.log("[GALERI API] Add photo request", payload);
+  console.log("[GALERI API] SAVE PHOTO PAYLOAD:", payload);
 
   try {
     const addResponse = await fetch(`${API_BASE_URL}/add-photo.php`, {
@@ -249,12 +357,23 @@ export async function addPhoto(data: {
     try {
       addResult = JSON.parse(addText);
     } catch {
-      throw new Error(`Add Photo API mengembalikan response bukan JSON: ${addText}`);
+      console.error("[GALERI API] SAVE PHOTO ERROR", {
+        status: addResponse.status,
+        body: addText,
+      });
+      throw new Error(`Add Photo API mengembalikan response bukan JSON (HTTP ${addResponse.status}): ${addText}`);
     }
 
     console.log("[GALERI API] Add photo response", addResult);
 
-    if (addResult?.success !== true) {
+    if (!addResponse.ok || addResult?.success !== true) {
+      console.error("[GALERI API] SAVE PHOTO ERROR", {
+        status: addResponse.status,
+        body: addResult,
+        message: addResult?.message,
+        data: addResult?.data,
+        error: addResult?.error,
+      });
       return {
         data: addResult,
         error: new Error(addResult?.message || "Gagal menyimpan data foto ke database."),
@@ -263,15 +382,15 @@ export async function addPhoto(data: {
 
     return { data: addResult, error: null };
   } catch (err: any) {
-    console.error("[GALERI API] Add photo exception:", err);
+    console.error("[GALERI API] SAVE PHOTO ERROR", err);
     return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
   }
 }
 
 /**
- * 7. UPDATE PHOTO / KEGIATAN
+ * 7. UPDATE PHOTO
  * POST https://api.mkverse.my.id/api/update-photo.php
- * Fields: id, title, description, image_url, category_id, event_date, is_featured, display_order
+ * Fields: id, title, description, image_url, category_id, activity_id, event_date, is_featured, display_order
  */
 export async function updatePhoto(data: {
   id: string | number;
@@ -279,6 +398,7 @@ export async function updatePhoto(data: {
   description?: string;
   image_url?: string;
   category_id?: string | number;
+  activity_id?: string | number | null;
   event_date?: string;
   is_featured?: number | boolean;
   display_order?: number;
@@ -295,6 +415,7 @@ export async function updatePhoto(data: {
     if (data.description !== undefined) formData.append("description", data.description);
     if (data.image_url !== undefined) formData.append("image_url", data.image_url);
     if (data.category_id !== undefined) formData.append("category_id", String(data.category_id));
+    if (data.activity_id !== undefined && data.activity_id !== null) formData.append("activity_id", String(data.activity_id));
     if (data.event_date !== undefined) formData.append("event_date", data.event_date);
     if (data.is_featured !== undefined) formData.append("is_featured", data.is_featured ? "1" : "0");
     if (data.display_order !== undefined) formData.append("display_order", String(data.display_order));
@@ -375,6 +496,7 @@ export async function fetchActivities(publishedOnly: boolean = false) {
 export async function addActivity(data: {
   title: string;
   slug?: string;
+  google_drive_url?: string | null;
   description?: string;
   category_id?: string | number | null;
   event_date?: string;
@@ -392,6 +514,7 @@ export async function addActivity(data: {
   const payload = {
     title: data.title.trim(),
     slug: data.slug || data.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
+    google_drive_url: data.google_drive_url ? data.google_drive_url.trim() : null,
     description: data.description || "",
     category_id: data.category_id ? Number(data.category_id) : null,
     event_date: data.event_date || new Date().toISOString().split("T")[0],
@@ -414,6 +537,7 @@ export async function updateActivity(data: {
   id: string | number;
   title: string;
   slug?: string;
+  google_drive_url?: string | null;
   description?: string;
   category_id?: string | number | null;
   event_date?: string;
@@ -430,6 +554,7 @@ export async function updateActivity(data: {
     id: Number(data.id),
     title: data.title.trim(),
     slug: data.slug || data.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
+    google_drive_url: data.google_drive_url !== undefined ? (data.google_drive_url ? data.google_drive_url.trim() : null) : undefined,
     description: data.description || "",
     category_id: data.category_id ? Number(data.category_id) : null,
     event_date: data.event_date || new Date().toISOString().split("T")[0],

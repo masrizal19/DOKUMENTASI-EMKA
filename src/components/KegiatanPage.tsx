@@ -215,7 +215,9 @@ export default function KegiatanPage({ activities, photos, onViewActivity }: Keg
               </div>
             ) : (
               filteredActivities.map((act) => {
-                const photoCount = photos.filter((p) => String(p.category_id) === String(act.id)).length;
+                const photoCount = photos.filter(
+                  (p) => String(p.activity_id) === String(act.id) || String(p.category_id) === String(act.id)
+                ).length;
 
                 return (
                   <div

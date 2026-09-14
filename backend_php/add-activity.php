@@ -25,6 +25,7 @@ if (!is_array($data)) {
 }
 
 $title = isset($data['title']) ? trim($data['title']) : '';
+$google_drive_url = !empty($data['google_drive_url']) ? trim($data['google_drive_url']) : null;
 $description = isset($data['description']) ? trim($data['description']) : '';
 $category_id = !empty($data['category_id']) ? (int) $data['category_id'] : null;
 $event_date = !empty($data['event_date']) ? trim($data['event_date']) : (!empty($data['date']) ? trim($data['date']) : date('Y-m-d'));
@@ -66,6 +67,7 @@ try {
     $sql = "INSERT INTO activities (
                 title,
                 slug,
+                google_drive_url,
                 description,
                 category_id,
                 event_date,
@@ -77,6 +79,7 @@ try {
             ) VALUES (
                 :title,
                 :slug,
+                :google_drive_url,
                 :description,
                 :category_id,
                 :event_date,
@@ -91,6 +94,7 @@ try {
     $stmt->execute([
         ':title' => $title,
         ':slug' => $finalSlug,
+        ':google_drive_url' => $google_drive_url,
         ':description' => $description,
         ':category_id' => $category_id,
         ':event_date' => $event_date,
@@ -109,6 +113,7 @@ try {
             'id' => $insertedId,
             'title' => $title,
             'slug' => $finalSlug,
+            'google_drive_url' => $google_drive_url,
             'description' => $description,
             'category_id' => $category_id,
             'event_date' => $event_date,

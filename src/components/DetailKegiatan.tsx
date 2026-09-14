@@ -184,7 +184,31 @@ export default function DetailKegiatan({
             </p>
 
             {/* Actions */}
-            <div className="pt-4 flex flex-wrap gap-4 items-center relative">
+            <div className="pt-2 flex flex-wrap gap-3 items-center relative">
+              {activity.google_drive_url && (
+                <a
+                  href={activity.google_drive_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 bg-[#d8a85c] hover:bg-[#eae1d8] text-[#110e09] font-subheading text-[11px] tracking-widest uppercase px-4 py-2.5 rounded-sm font-bold transition-all shadow-md cursor-pointer"
+                >
+                  <FolderOpen className="w-4 h-4" /> Buka Folder Google Drive
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="flex items-center gap-2 bg-[#110e09]/80 border border-[#4f4538]/40 hover:border-[#f6c374] text-[#eae1d8] hover:text-[#f6c374] font-subheading text-[11px] tracking-widest uppercase px-4 py-2.5 rounded-sm font-semibold transition-all cursor-pointer"
+              >
+                <Copy className="w-3.5 h-3.5" /> Salin Tautan
+              </button>
+              <button
+                type="button"
+                onClick={handleShareWhatsApp}
+                className="flex items-center gap-2 bg-[#25D366]/20 border border-[#25D366]/40 hover:bg-[#25D366]/30 text-[#25D366] font-subheading text-[11px] tracking-widest uppercase px-4 py-2.5 rounded-sm font-semibold transition-all cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5" /> Bagikan WhatsApp
+              </button>
             </div>
           </motion.div>
         </div>

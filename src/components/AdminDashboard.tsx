@@ -31,6 +31,7 @@ import { isValidUUID, resolveImageUrl } from "../lib/storage.js";
 import {
   fetchPhotos,
   fetchCategories,
+  addCategory,
   fetchActivities,
   deletePhoto,
   deleteActivity,
@@ -68,6 +69,17 @@ export default function AdminDashboard({
     "school" | "hero" | "about" | "vision" | "sections" | "copyright"
   >("school");
   const [categories, setCategories] = useState<Category[]>([]);
+  const [isCategoryLoading, setIsCategoryLoading] = useState<boolean>(false);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState<boolean>(false);
+  const [isSavingCategory, setIsSavingCategory] = useState<boolean>(false);
+  const [categoryModalForm, setCategoryModalForm] = useState({
+    name: "",
+    slug: "",
+    description: "",
+    display_order: 0,
+    is_active: 1,
+  });
   const [activities, setActivities] = useState<Activity[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -87,6 +99,7 @@ export default function AdminDashboard({
   const [activityFormData, setActivityFormData] = useState({
     title: "",
     slug: "",
+    google_drive_url: "",
     category_id: "" as string | number,
     category: "Kegiatan Sekolah",
     date: new Date().toISOString().split("T")[0],
@@ -126,6 +139,7 @@ export default function AdminDashboard({
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const [uploadStatusText, setUploadStatusText] = useState<string>("");
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isUploadingAboutPhoto, setIsUploadingAboutPhoto] =
     useState<boolean>(false);
 
@@ -297,17 +311,25 @@ export default function AdminDashboard({
       }
 
       // Fetch categories from PHP API
-      const { data: catData } = await fetchCategories();
+      setIsCategoryLoading(true);
+      setCategoryError(null);
+      const { data: catData, error: catErr } = await fetchCategories();
       let fetchedCategories: Category[] = [];
-      if (catData && catData.success && Array.isArray(catData.data)) {
+      if (catErr) {
+        console.error("[GALERI API] Gagal memuat kategori:", catErr);
+        setCategoryError("Gagal memuat kategori.");
+      } else if (catData && catData.success && Array.isArray(catData.data)) {
         fetchedCategories = catData.data.map((c: any) => ({
-          id: c.id,
+          id: String(c.id),
           name: c.name || c.title || "",
           slug: c.slug || "",
           description: c.description || "",
         }));
         setCategories(fetchedCategories);
+      } else if (catData && catData.success === false) {
+        setCategoryError(catData.message || "Gagal memuat kategori.");
       }
+      setIsCategoryLoading(false);
 
       // Fetch activities from PHP API (activities.php -> fallback: categories.php)
       const { data: actData, error: actErr } = await fetchActivities(false);
@@ -327,6 +349,7 @@ export default function AdminDashboard({
             id: String(row.id),
             title: row.title || row.name || "",
             slug: row.slug || (row.title || row.name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-") || "",
+            google_drive_url: row.google_drive_url || null,
             category: row.category_name || row.category || "Kegiatan Sekolah",
             category_id: row.category_id ? String(row.category_id) : "",
             date: row.event_date || row.date || new Date().toISOString().split("T")[0],
@@ -347,6 +370,7 @@ export default function AdminDashboard({
             id: String(row.id),
             title: row.name || row.title || "",
             slug: row.slug || (row.name || row.title || "").toLowerCase().replace(/[^a-z0-9]+/g, "-") || "",
+            google_drive_url: row.google_drive_url || null,
             category: row.name || row.category || "Kegiatan Sekolah",
             category_id: String(row.id),
             date: row.date || row.event_date || new Date().toISOString().split("T")[0],
@@ -370,7 +394,7 @@ export default function AdminDashboard({
         mappedPhotos = (photosData.data as any[]).map((row: any) => ({
           id: String(row.id),
           category_id: String(row.category_id || ""),
-          activity_id: String(row.category_id || ""), // Link to activity via category_id
+          activity_id: row.activity_id ? String(row.activity_id) : (row.category_id ? String(row.category_id) : ""),
           title: row.title || row.description || "Foto Galeri",
           image_url: resolveImageUrl(row.image_url) || "",
           description: row.description || "",
@@ -437,22 +461,24 @@ export default function AdminDashboard({
     fetchData();
   }, [token]);
 
-  // Validation helpers
+  // Validation helpers (Format verification without artificial frontend size limits)
   const validateImageFile = (file: File): string | null => {
     const validTypes = [
       "image/jpeg",
       "image/jpg",
+      "image/pjpeg",
       "image/png",
       "image/webp",
       "image/gif",
+      "image/heic",
+      "image/heif",
       "image/avif",
+      "image/svg+xml",
     ];
-    if (!validTypes.includes(file.type)) {
-      return "Format file gambar tidak didukung. Gunakan JPG, PNG, WEBP, GIF, atau AVIF.";
-    }
-    const maxSize = 100 * 1024 * 1024; // 100 MB as requested
-    if (file.size > maxSize) {
-      return "Ukuran gambar terlalu besar. Maksimal 100 MB.";
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    const validExts = ["jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "avif", "svg"];
+    if (file.type && !validTypes.includes(file.type) && (!ext || !validExts.includes(ext))) {
+      return "Format file gambar tidak didukung. Gunakan JPG, PNG, WEBP, GIF, HEIC, atau AVIF.";
     }
     return null;
   };
@@ -463,33 +489,38 @@ export default function AdminDashboard({
       "video/webm",
       "video/quicktime",
       "video/mov",
+      "video/ogg",
+      "video/x-matroska",
+      "video/x-msvideo",
+      "video/avi",
     ];
     const ext = file.name.split(".").pop()?.toLowerCase();
-    const validExts = ["mp4", "webm", "mov"];
-    if (!validTypes.includes(file.type) && (!ext || !validExts.includes(ext))) {
+    const validExts = ["mp4", "webm", "mov", "ogv", "mkv", "avi"];
+    if (file.type && !validTypes.includes(file.type) && (!ext || !validExts.includes(ext))) {
       return "Format file video tidak didukung. Gunakan MP4, WEBM, atau MOV.";
-    }
-    const maxSize = 100 * 1024 * 1024; // 100 MB
-    if (file.size > maxSize) {
-      return "Ukuran video terlalu besar. Maksimal 100 MB.";
     }
     return null;
   };
 
-  // Server Storage upload helper using PHP API (POST /api/upload.php)
+  // Server Storage upload helper using PHP API (POST /api/upload.php) with progress support
   const uploadFileToServer = async (
     file: File,
     folder: "images" | "videos" = "images",
+    onProgressUpdate?: (percent: number) => void
   ): Promise<string> => {
     try {
-      const res = await uploadPhoto(file);
+      const res = await uploadPhoto(file, (percent) => {
+        setUploadProgress(percent);
+        setUploadStatusText(`Mengunggah... ${percent}%`);
+        if (onProgressUpdate) onProgressUpdate(percent);
+      });
       if (res.error || !res.url) {
-        throw new Error(res.error?.message || "Gagal mengunggah media");
+        throw new Error(res.error?.message || "Gagal mengunggah media ke server.");
       }
       return res.url;
     } catch (err: any) {
       console.error("[UPLOAD ERROR]", err);
-      throw new Error(err?.message || "Gagal mengunggah media");
+      throw new Error(err?.message || "Gagal mengunggah media ke server.");
     }
   };
 
@@ -524,6 +555,15 @@ export default function AdminDashboard({
     setPhotoFile(file);
     setPhotoPreview(objectUrl);
 
+    // Auto-fill title if currently empty
+    if (!photoFormData.title || photoFormData.title.trim() === "") {
+      const fileNameWithoutExt = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]+/g, " ");
+      setPhotoFormData((prev) => ({
+        ...prev,
+        title: fileNameWithoutExt,
+      }));
+    }
+
     // Auto-detect image aspect ratio from dimensions
     const img = new Image();
     img.onload = () => {
@@ -536,16 +576,91 @@ export default function AdminDashboard({
     img.src = objectUrl;
   };
 
+  // Category Creation Handler
+  const handleOpenAddCategory = () => {
+    setCategoryModalForm({
+      name: "",
+      slug: "",
+      description: "",
+      display_order: categories.length,
+      is_active: 1,
+    });
+    setIsCategoryModalOpen(true);
+  };
+
+  const handleSaveCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!categoryModalForm.name.trim()) {
+      onShowToast("Nama kategori wajib diisi.", "error");
+      return;
+    }
+    setIsSavingCategory(true);
+    try {
+      const generatedSlug = categoryModalForm.slug.trim()
+        ? categoryModalForm.slug.toLowerCase().replace(/[^a-z0-9-]+/g, "-")
+        : categoryModalForm.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+
+      const { data, error } = await addCategory({
+        name: categoryModalForm.name.trim(),
+        slug: generatedSlug,
+        description: categoryModalForm.description || "",
+        display_order: Number(categoryModalForm.display_order || 0),
+        is_active: Number(categoryModalForm.is_active || 1),
+      });
+
+      if (error || !data || data.success === false) {
+        const errMsg = data?.message || error?.message || "Gagal menambahkan kategori.";
+        onShowToast(errMsg, "error");
+        return;
+      }
+
+      onShowToast(data.message || "Kategori baru berhasil ditambahkan.", "success");
+      setIsCategoryModalOpen(false);
+
+      // Re-fetch categories from API
+      const { data: catData } = await fetchCategories();
+      if (catData && catData.success && Array.isArray(catData.data)) {
+        const fetchedCats: Category[] = catData.data.map((c: any) => ({
+          id: String(c.id),
+          name: c.name || c.title || "",
+          slug: c.slug || "",
+          description: c.description || "",
+        }));
+        setCategories(fetchedCats);
+
+        // Auto select newly created category in activity form if open
+        const newCat = fetchedCats.find(
+          (c) => c.name.toLowerCase() === categoryModalForm.name.trim().toLowerCase()
+        ) || (data.data?.id ? fetchedCats.find((c) => String(c.id) === String(data.data.id)) : null);
+
+        if (newCat) {
+          setActivityFormData((prev) => ({
+            ...prev,
+            category_id: String(newCat.id),
+            category: newCat.name,
+          }));
+        }
+      }
+    } catch (err: any) {
+      console.error("[GALERI API] Save category error:", err);
+      onShowToast(err.message || "Terjadi kesalahan saat menyimpan kategori.", "error");
+    } finally {
+      setIsSavingCategory(false);
+    }
+  };
+
   // Activity CRUD
   const handleOpenAddActivity = () => {
     if (coverPreview) URL.revokeObjectURL(coverPreview);
     if (videoPreview) URL.revokeObjectURL(videoPreview);
     setEditingActivity(null);
+    const defaultCat = categories.length > 0 ? categories[0] : null;
     setActivityFormData({
       title: "",
       slug: "",
-      category_id: categories[0]?.id || "",
-      category: categories[0]?.name || "Kegiatan Sekolah",
+      google_drive_url: "",
+      category_id: defaultCat ? String(defaultCat.id) : "",
+      category: defaultCat ? defaultCat.name : "",
       date: new Date().toISOString().split("T")[0],
       description: "",
       status: "published",
@@ -562,11 +677,23 @@ export default function AdminDashboard({
     if (coverPreview) URL.revokeObjectURL(coverPreview);
     if (videoPreview) URL.revokeObjectURL(videoPreview);
     setEditingActivity(act);
+    const matchedCategory = categories.find(
+      (c) =>
+        String(c.id) === String(act.category_id) ||
+        (act.category && c.name.toLowerCase() === act.category.toLowerCase())
+    );
     setActivityFormData({
       title: act.title,
       slug: act.slug || act.title.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-      category_id: act.category_id || categories.find((c) => c.name === act.category)?.id || "",
-      category: act.category || "Kegiatan Sekolah",
+      google_drive_url: act.google_drive_url || "",
+      category_id: act.category_id
+        ? String(act.category_id)
+        : matchedCategory
+        ? String(matchedCategory.id)
+        : "",
+      category: matchedCategory
+        ? matchedCategory.name
+        : act.category || "",
       date: act.event_date || act.date || new Date().toISOString().split("T")[0],
       description: act.description || "",
       status: act.status || "published",
@@ -613,6 +740,7 @@ export default function AdminDashboard({
           id: editingActivity.id,
           title: activityFormData.title.trim(),
           slug: finalSlug,
+          google_drive_url: activityFormData.google_drive_url?.trim() || null,
           description: activityFormData.description || "",
           category_id: activityFormData.category_id || null,
           event_date: activityFormData.date || new Date().toISOString().split("T")[0],
@@ -629,6 +757,7 @@ export default function AdminDashboard({
         const { data, error } = await addActivity({
           title: activityFormData.title.trim(),
           slug: finalSlug,
+          google_drive_url: activityFormData.google_drive_url?.trim() || null,
           description: activityFormData.description || "",
           category_id: activityFormData.category_id || null,
           event_date: activityFormData.date || new Date().toISOString().split("T")[0],
@@ -747,20 +876,21 @@ export default function AdminDashboard({
     setPhotoFile(null);
     setPhotoPreview("");
     setPhotoAspectRatio("landscape");
+    const defaultActivityId =
+      selectedActivityForPhotos !== "all"
+        ? selectedActivityForPhotos
+        : (activities[0]?.id ? String(activities[0].id) : "");
     setPhotoFormData({
-      category_id:
-        selectedActivityForPhotos !== "all"
-          ? selectedActivityForPhotos
-          : activities[0]?.id || "",
-      activity_id:
-        selectedActivityForPhotos !== "all"
-          ? selectedActivityForPhotos
-          : activities[0]?.id || "",
+      category_id: defaultActivityId,
+      activity_id: defaultActivityId,
       title: "",
       image_url: "",
       sort_order:
-        photos.filter((p) => String(p.category_id) === String(selectedActivityForPhotos))
-          .length + 1,
+        photos.filter(
+          (p) =>
+            String(p.activity_id) === String(defaultActivityId) ||
+            String(p.category_id) === String(defaultActivityId)
+        ).length + 1,
     });
     setIsPhotoFormOpen(true);
   };
@@ -777,9 +907,14 @@ export default function AdminDashboard({
         ? "portrait"
         : "landscape";
     setPhotoAspectRatio(initialRatio);
+    const activeActId = photo.activity_id
+      ? String(photo.activity_id)
+      : photo.category_id
+      ? String(photo.category_id)
+      : "";
     setPhotoFormData({
-      category_id: String(photo.category_id),
-      activity_id: String(photo.category_id),
+      category_id: activeActId,
+      activity_id: activeActId,
       title: photo.title,
       image_url: photo.image_url,
       sort_order: photo.sort_order,
@@ -800,8 +935,6 @@ export default function AdminDashboard({
     }
 
     // Ensure active admin session before upload & insert
-    
-
     const session = token ? { user: { id: "admin" } } : null;
 
     if (!session || !session.user) {
@@ -813,13 +946,21 @@ export default function AdminDashboard({
     }
 
     setUploadLoading(true);
+    setUploadProgress(0);
+    setUploadStatusText("Mempersiapkan unggahan...");
     try {
       let finalImageUrl = photoFormData.image_url;
 
-      // If user selected a new file, upload to PHP API
+      // If user selected a new file, upload to PHP API with real-time progress
       if (photoFile) {
-        const uploadRes = await uploadPhoto(photoFile);
-        if (uploadRes.error || !uploadRes.url) throw new Error(uploadRes.error?.message || "Gagal mengunggah foto");
+        setUploadStatusText("Mengunggah berkas... 0%");
+        const uploadRes = await uploadPhoto(photoFile, (percent) => {
+          setUploadProgress(percent);
+          setUploadStatusText(`Mengunggah berkas... ${percent}%`);
+        });
+        if (uploadRes.error || !uploadRes.url) {
+          throw new Error(uploadRes.error?.message || "Gagal mengunggah foto ke server.");
+        }
         finalImageUrl = uploadRes.url;
       }
 
@@ -827,32 +968,55 @@ export default function AdminDashboard({
         throw new Error("URL Foto tidak valid.");
       }
 
+      setUploadStatusText("Menyimpan data foto ke database...");
+
       const isEditing = !!editingPhoto;
       const photoId = isEditing ? editingPhoto.id : Date.now().toString();
 
-      const baseDbRow: any = {
-        category_id: photoFormData.activity_id,
-        title: photoFormData.title || "",
+      const matchedAct = activities.find((a) => String(a.id) === String(photoFormData.activity_id));
+      const safeTitle =
+        photoFormData.title?.trim() ||
+        photoFile?.name?.replace(/\.[^/.]+$/, "") ||
+        matchedAct?.title ||
+        "Foto Kegiatan";
+
+      const baseDbRow = {
+        title: safeTitle,
+        description: "",
         image_url: finalImageUrl,
-        display_order: photoFormData.sort_order || 0,
+        activity_id: photoFormData.activity_id ? Number(photoFormData.activity_id) : null,
+        category_id: matchedAct?.category_id ? Number(matchedAct.category_id) : 1,
+        event_date: matchedAct?.event_date || matchedAct?.date || new Date().toISOString().split("T")[0],
+        is_featured: 0,
+        display_order: Number(photoFormData.sort_order || 0),
       };
 
+      console.log("[GALERI API] SAVE PHOTO PAYLOAD:", baseDbRow);
+
+      let savedId = photoId;
       if (isEditing) {
         // Authenticated UPDATE
         const updateRes = await updatePhoto({ id: photoId, ...baseDbRow });
-        if (updateRes.error) throw new Error("Gagal memperbarui foto di database.");
+        if (updateRes.error) {
+          throw new Error(updateRes.error.message || "Gagal memperbarui foto di database.");
+        }
       } else {
         // Authenticated INSERT
         const addRes = await addPhoto(baseDbRow);
-        if (addRes.error) throw new Error("Gagal menyimpan foto ke database.");
+        if (addRes.error) {
+          throw new Error(addRes.error.message || "Gagal menyimpan foto ke database.");
+        }
+        if (addRes.data?.data?.id) {
+          savedId = String(addRes.data.data.id);
+        }
       }
 
       // Instantly update local state
       const updatedPhotoItem: Photo = {
-        id: photoId,
-        category_id: String(photoFormData.activity_id),
-        activity_id: photoFormData.activity_id,
-        title: photoFormData.title || "",
+        id: savedId,
+        category_id: String(matchedAct?.category_id || photoFormData.activity_id),
+        activity_id: String(photoFormData.activity_id),
+        title: safeTitle,
         image_url: finalImageUrl,
         sort_order: photoFormData.sort_order || 0,
         aspect_ratio: photoAspectRatio,
@@ -863,7 +1027,7 @@ export default function AdminDashboard({
       };
 
       setPhotos((prev) => {
-        const existingIdx = prev.findIndex((p) => p.id === photoId);
+        const existingIdx = prev.findIndex((p) => p.id === savedId || p.id === photoId);
         if (existingIdx >= 0) {
           const copy = [...prev];
           copy[existingIdx] = updatedPhotoItem;
@@ -875,7 +1039,7 @@ export default function AdminDashboard({
       onShowToast(
         editingPhoto
           ? "Detail foto berhasil diperbarui."
-          : "Foto berhasil diunggah dan disimpan ke kegiatan.",
+          : "Foto berhasil disimpan.",
         "success",
       );
 
@@ -888,9 +1052,9 @@ export default function AdminDashboard({
       if (onRefreshData) onRefreshData();
       fetchData();
     } catch (err: any) {
-      console.error("[SAVE PHOTO ERROR]", err);
+      console.error("[GALERI API] SAVE PHOTO ERROR", err);
       onShowToast(
-        err.message || "Terjadi kesalahan saat memproses foto.",
+        err?.message || "Gagal menyimpan foto ke database.",
         "error",
       );
     } finally {
@@ -1147,11 +1311,21 @@ export default function AdminDashboard({
   const filteredPhotosForList =
     selectedActivityForPhotos === "all"
       ? photos
-      : photos.filter((p) => p.activity_id === selectedActivityForPhotos);
+      : photos.filter(
+          (p) =>
+            String(p.activity_id) === String(selectedActivityForPhotos) ||
+            String(p.category_id) === String(selectedActivityForPhotos)
+        );
 
   // Group photos by activity name
-  const getActTitle = (id: string) =>
-    activities.find((a) => a.id === id)?.title || "Tidak Diketahui";
+  const getActTitle = (id?: string) => {
+    if (!id) return "Tidak terkait kegiatan";
+    const foundAct = activities.find((a) => String(a.id) === String(id));
+    if (foundAct) return foundAct.title;
+    const foundCat = categories.find((c) => String(c.id) === String(id));
+    if (foundCat) return foundCat.name;
+    return "Tidak Diketahui";
+  };
 
   if (isLoading) {
     return (
@@ -2354,7 +2528,7 @@ export default function AdminDashboard({
                                     </span>
                                   </div>
                                   <div className="text-[10px] text-[#9b8f7f]/70 uppercase tracking-widest font-subheading">
-                                    JPG, PNG, WEBP, GIF, AVIF — Maks. 100MB
+                                    JPG, PNG, WEBP, GIF, AVIF, HEIC
                                   </div>
                                 </>
                               )}
@@ -4241,9 +4415,31 @@ export default function AdminDashboard({
               {/* Row 2: Category & Date */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] font-semibold">
-                    Kategori Kegiatan
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] font-semibold">
+                      Kategori Kegiatan
+                    </label>
+                    <div className="flex items-center gap-2">
+                      {isCategoryLoading && (
+                        <span className="text-[10px] text-[#f6c374] flex items-center gap-1 font-body">
+                          <Loader2 className="w-3 h-3 animate-spin" /> Memuat...
+                        </span>
+                      )}
+                      {categoryError && !isCategoryLoading && (
+                        <span className="text-[10px] text-red-400 font-body">
+                          {categoryError}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleOpenAddCategory}
+                        className="text-[10px] text-[#f6c374] hover:underline font-subheading uppercase tracking-wider flex items-center gap-0.5 cursor-pointer"
+                        title="Tambah Kategori Baru"
+                      >
+                        <Plus className="w-3 h-3" /> Kategori Baru
+                      </button>
+                    </div>
+                  </div>
                   <select
                     value={activityFormData.category_id || ""}
                     onChange={(e) => {
@@ -4251,7 +4447,7 @@ export default function AdminDashboard({
                       setActivityFormData((prev) => ({
                         ...prev,
                         category_id: e.target.value,
-                        category: selCat ? selCat.name : "Kegiatan Sekolah",
+                        category: selCat ? selCat.name : "",
                       }));
                     }}
                     className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
@@ -4262,14 +4458,10 @@ export default function AdminDashboard({
                         {cat.name}
                       </option>
                     ))}
-                    {categories.length === 0 && (
-                      <>
-                        <option value="1">Kegiatan Sekolah</option>
-                        <option value="2">Event</option>
-                        <option value="3">Olahraga & Kreativitas</option>
-                        <option value="4">Kegiatan Siswa</option>
-                        <option value="5">Kelulusan</option>
-                      </>
+                    {categories.length === 0 && !isCategoryLoading && (
+                      <option value="" disabled>
+                        Belum ada kategori
+                      </option>
                     )}
                   </select>
                 </div>
@@ -4349,6 +4541,28 @@ export default function AdminDashboard({
                   }
                   placeholder="Deskripsi dokumentasi kegiatan sekolah..."
                   className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374] resize-none"
+                />
+              </div>
+
+              {/* Google Drive URL */}
+              <div className="space-y-1.5">
+                <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] font-semibold flex items-center justify-between">
+                  <span>Tautan Google Drive (Opsional)</span>
+                  <span className="text-[#9b8f7f] text-[9px] lowercase font-normal">
+                    folder arsip foto resolusi penuh
+                  </span>
+                </label>
+                <input
+                  type="url"
+                  value={activityFormData.google_drive_url}
+                  onChange={(e) =>
+                    setActivityFormData((prev) => ({
+                      ...prev,
+                      google_drive_url: e.target.value,
+                    }))
+                  }
+                  placeholder="https://drive.google.com/drive/folders/..."
+                  className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2.5 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
                 />
               </div>
 
@@ -4455,7 +4669,7 @@ export default function AdminDashboard({
                         </div>
                       </div>
                       <div className="text-[10px] text-[#9b8f7f]/70 uppercase tracking-widest">
-                        JPG, PNG, WEBP — Maks. 5MB
+                        JPG, PNG, WEBP, HEIC, AVIF
                       </div>
                       <input
                         type="file"
@@ -4591,7 +4805,7 @@ export default function AdminDashboard({
                 <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] flex items-center justify-between font-semibold">
                   <span>Berkas Foto</span>
                   <span className="text-[#9b8f7f] text-[9px] lowercase">
-                    format: jpg, png, webp (maks 100mb)
+                    format: JPG, PNG, WEBP, HEIC, AVIF, GIF
                   </span>
                 </label>
 
@@ -4735,10 +4949,32 @@ export default function AdminDashboard({
                 )}
               </div>
 
+              {/* Live Upload Progress Indicator */}
+              {uploadLoading && (
+                <div className="space-y-1.5 p-3 rounded bg-[#110e09] border border-[#4f4538]/40">
+                  <div className="flex items-center justify-between text-xs font-subheading">
+                    <span className="text-[#f6c374] flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      {uploadStatusText || "Mengunggah & Menyimpan..."}
+                    </span>
+                    <span className="text-[#eae1d8] font-bold">
+                      {uploadProgress}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-[#17130e] border border-[#4f4538]/30 h-2 rounded-full overflow-hidden">
+                    <div
+                      className="bg-gradient-to-r from-[#d8a85c] to-[#f6c374] h-full transition-all duration-300 rounded-full"
+                      style={{ width: `${Math.max(uploadProgress, 4)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Form trigger buttons */}
               <div className="border-t border-[#4f4538]/15 pt-6 flex justify-end gap-3">
                 <button
                   type="button"
+                  disabled={uploadLoading}
                   onClick={() => {
                     if (photoPreview && photoPreview.startsWith("blob:")) {
                       URL.revokeObjectURL(photoPreview);
@@ -4747,19 +4983,23 @@ export default function AdminDashboard({
                     setPhotoPreview("");
                     setIsPhotoFormOpen(false);
                   }}
-                  className="border border-[#4f4538]/30 hover:bg-[#3e3832]/20 text-[#eae1d8] font-subheading uppercase text-[10px] tracking-widest py-3 px-6 rounded transition-colors cursor-pointer"
+                  className="border border-[#4f4538]/30 hover:bg-[#3e3832]/20 text-[#eae1d8] font-subheading uppercase text-[10px] tracking-widest py-3 px-6 rounded transition-colors cursor-pointer disabled:opacity-50"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={uploadLoading}
-                  className="bg-[#d8a85c] hover:bg-[#eae1d8] text-[#110e09] font-subheading uppercase text-[10px] tracking-widest py-3 px-6 rounded font-bold transition-all cursor-pointer flex items-center gap-2"
+                  className="bg-[#d8a85c] hover:bg-[#eae1d8] text-[#110e09] font-subheading uppercase text-[10px] tracking-widest py-3 px-6 rounded font-bold transition-all cursor-pointer flex items-center gap-2 disabled:opacity-75"
                 >
                   {uploadLoading ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" /> Sedang
-                      Mengunggah & Menyimpan...
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>
+                        {uploadProgress > 0 && uploadProgress < 100
+                          ? `Mengunggah (${uploadProgress}%)`
+                          : (uploadStatusText || "Menyimpan Foto...")}
+                      </span>
                     </>
                   ) : (
                     "Simpan Foto"
@@ -4827,70 +5067,140 @@ export default function AdminDashboard({
         </div>
       )}
 
-      {/* DELETE CONFIRMATION MODAL (PHOTO / MEDIA) */}
-      {photoToDelete && (
+      {/* ADD CATEGORY MODAL */}
+      {isCategoryModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-fade-in">
-          <div className="glass-panel w-full max-w-md rounded-lg border border-[#4f4538]/30 bg-[#14100b] p-6 shadow-2xl">
-            <div className="flex items-center gap-3 text-red-400 mb-3">
-              <div className="p-2.5 rounded-full bg-red-500/10 border border-red-500/20">
-                <Trash2 className="w-5 h-5 text-red-400" />
-              </div>
-              <h3 className="font-display text-lg font-bold text-[#eae1d8]">
-                Hapus foto ini?
+          <div className="glass-panel w-full max-w-md rounded-lg border border-[#4f4538]/30 bg-[#14100b] p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[#4f4538]/20 pb-3">
+              <h3 className="font-display text-base font-bold text-[#eae1d8] flex items-center gap-2">
+                <span className="text-[#f6c374]"><Plus className="w-4 h-4" /></span>
+                Tambah Kategori Baru
               </h3>
+              <button
+                type="button"
+                onClick={() => setIsCategoryModalOpen(false)}
+                className="text-[#9b8f7f] hover:text-[#eae1d8] p-1 rounded cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            <p className="font-body text-xs text-[#9b8f7f] leading-relaxed mb-4">
-              Foto akan dihapus secara permanen dari database dan penyimpanan server. Tindakan ini tidak dapat dibatalkan.
-            </p>
-
-            {photoToDelete.image_url && (
-              <div className="mb-6 flex items-center gap-3 p-3 rounded bg-[#110e09] border border-[#4f4538]/20">
-                <img
-                  src={resolveImageUrl(photoToDelete.image_url)}
-                  alt="Thumbnail"
-                  className="w-14 h-14 object-cover rounded border border-[#4f4538]/30 shrink-0"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.src = "https://placehold.co/100x100/110e09/4f4538?text=Image";
+            <form onSubmit={handleSaveCategory} className="space-y-4 font-body text-xs">
+              <div className="space-y-1.5">
+                <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] font-semibold">
+                  Nama Kategori <span className="text-[#f6c374]">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Contoh: Kegiatan Sekolah / Ekstrakurikuler"
+                  value={categoryModalForm.name}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCategoryModalForm((prev) => ({
+                      ...prev,
+                      name: val,
+                      slug: val.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
+                    }));
                   }}
+                  className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
                 />
-                <div className="min-w-0 flex-1 font-body text-xs">
-                  <p className="text-[#eae1d8] font-semibold truncate">
-                    {photoToDelete.title || "Foto Tanpa Judul"}
-                  </p>
-                  <p className="text-[#9b8f7f] text-[10px] font-mono mt-0.5">
-                    ID Foto: #{photoToDelete.id}
-                  </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] font-semibold">
+                  Slug (URL-friendly)
+                </label>
+                <input
+                  type="text"
+                  placeholder="contoh: kegiatan-sekolah"
+                  value={categoryModalForm.slug}
+                  onChange={(e) =>
+                    setCategoryModalForm((prev) => ({ ...prev, slug: e.target.value }))
+                  }
+                  className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] font-semibold">
+                  Deskripsi (Opsional)
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Deskripsi singkat kategori..."
+                  value={categoryModalForm.description}
+                  onChange={(e) =>
+                    setCategoryModalForm((prev) => ({ ...prev, description: e.target.value }))
+                  }
+                  className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] font-semibold">
+                    Urutan Tampilan
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={categoryModalForm.display_order}
+                    onChange={(e) =>
+                      setCategoryModalForm((prev) => ({
+                        ...prev,
+                        display_order: parseInt(e.target.value) || 0,
+                      }))
+                    }
+                    className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="font-subheading text-[10px] uppercase tracking-widest text-[#eae1d8] font-semibold">
+                    Status Aktif
+                  </label>
+                  <select
+                    value={categoryModalForm.is_active}
+                    onChange={(e) =>
+                      setCategoryModalForm((prev) => ({
+                        ...prev,
+                        is_active: parseInt(e.target.value) || 1,
+                      }))
+                    }
+                    className="w-full bg-[#110e09] border border-[#4f4538]/30 rounded py-2 px-3 text-[#eae1d8] focus:outline-none focus:border-[#f6c374]"
+                  >
+                    <option value={1}>Aktif</option>
+                    <option value={0}>Nonaktif</option>
+                  </select>
                 </div>
               </div>
-            )}
 
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#4f4538]/15">
-              <button
-                type="button"
-                disabled={isDeletingPhoto}
-                onClick={() => setPhotoToDelete(null)}
-                className="px-4 py-2 rounded-sm border border-[#4f4538]/30 font-subheading text-xs tracking-wider uppercase text-[#eae1d8] hover:bg-[#4f4538]/20 transition-colors disabled:opacity-50 cursor-pointer"
-              >
-                BATAL
-              </button>
-              <button
-                type="button"
-                disabled={isDeletingPhoto}
-                onClick={() => handleConfirmDeletePhoto(photoToDelete)}
-                className="px-5 py-2 rounded-sm bg-red-600 hover:bg-red-700 text-white font-subheading text-xs tracking-wider uppercase font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-2"
-              >
-                {isDeletingPhoto ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>MENGHAPUS...</span>
-                  </>
-                ) : (
-                  <span>HAPUS</span>
-                )}
-              </button>
-            </div>
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#4f4538]/20">
+                <button
+                  type="button"
+                  disabled={isSavingCategory}
+                  onClick={() => setIsCategoryModalOpen(false)}
+                  className="px-4 py-2 rounded-sm border border-[#4f4538]/30 font-subheading text-xs tracking-wider uppercase text-[#eae1d8] hover:bg-[#4f4538]/20 transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  BATAL
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingCategory}
+                  className="px-5 py-2 rounded-sm bg-[#d8a85c] hover:bg-[#f6c374] text-[#110e09] font-subheading text-xs tracking-wider uppercase font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-2"
+                >
+                  {isSavingCategory ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>MENYIMPAN...</span>
+                    </>
+                  ) : (
+                    <span>SIMPAN KATEGORI</span>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -126,7 +126,7 @@ export default function GaleriFoto({
 
     const validPhotos = photoPool
       .filter((photo) => {
-        const act = catMap.get(String(photo.category_id));
+        const act = catMap.get(String(photo.activity_id || photo.category_id));
         const photoYear = getYear(photo.created_at) || (act ? getYear(act.date) : "");
 
         // Category filter
