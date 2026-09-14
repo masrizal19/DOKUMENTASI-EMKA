@@ -1,5 +1,17 @@
-# Konfigurasi Upload Berkas Galeri EMKA
+# Konfigurasi Upload & HTTP Method Galeri EMKA API
 # Letakkan di direktori backend API PHP (misal /api/ atau root public_html)
+
+# Izinkan method HTTP standar untuk REST API
+<Limit GET POST PUT DELETE OPTIONS>
+    Allow from all
+</Limit>
+
+# Pastikan Authorization header diteruskan ke skrip PHP di bawah mod_rewrite / fastcgi
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTP:Authorization} ^(.*)
+    RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
+</IfModule>
 
 <IfModule mod_php.c>
     php_value upload_max_filesize 2G

@@ -736,11 +736,15 @@ export default function AdminDashboard({
 
       let resultData: any = null;
       if (isEditingExisting) {
+        const enteredGdrive = activityFormData.google_drive_url?.trim();
+        const existingGdrive = editingActivity.google_drive_url?.trim();
+        const finalGoogleDrive = enteredGdrive ? enteredGdrive : (existingGdrive || null);
+
         const { data, error } = await updateActivity({
           id: editingActivity.id,
           title: activityFormData.title.trim(),
           slug: finalSlug,
-          google_drive_url: activityFormData.google_drive_url?.trim() || null,
+          google_drive_url: finalGoogleDrive,
           description: activityFormData.description || "",
           category_id: activityFormData.category_id || null,
           event_date: activityFormData.date || new Date().toISOString().split("T")[0],
@@ -1003,28 +1007,55 @@ export default function AdminDashboard({
         matchedAct?.title ||
         "Foto Kegiatan";
 
+      const resolvedActivityId = photoFormData.activity_id
+        ? Number(photoFormData.activity_id)
+        : (editingPhoto?.activity_id ? Number(editingPhoto.activity_id) : (editingPhoto?.category_id ? Number(editingPhoto.category_id) : null));
+
+      const resolvedCategoryId = matchedAct?.category_id
+        ? Number(matchedAct.category_id)
+        : (editingPhoto?.category_id ? Number(editingPhoto.category_id) : 1);
+
+      const resolvedEventDate =
+        matchedAct?.event_date ||
+        matchedAct?.date ||
+        editingPhoto?.event_date ||
+        new Date().toISOString().split("T")[0];
+
+      const resolvedDescription =
+        editingPhoto?.description !== undefined
+          ? editingPhoto.description
+          : "";
+
+      const resolvedIsFeatured = editingPhoto?.is_featured ? 1 : 0;
+      const resolvedDisplayOrder = Number(photoFormData.sort_order ?? editingPhoto?.sort_order ?? 0);
+
       const baseDbRow = {
         title: safeTitle,
-        description: "",
+        description: resolvedDescription,
         image_url: finalImageUrl,
-        activity_id: photoFormData.activity_id ? Number(photoFormData.activity_id) : null,
-        category_id: matchedAct?.category_id ? Number(matchedAct.category_id) : 1,
-        event_date: matchedAct?.event_date || matchedAct?.date || new Date().toISOString().split("T")[0],
-        is_featured: 0,
-        display_order: Number(photoFormData.sort_order || 0),
+        activity_id: resolvedActivityId,
+        category_id: resolvedCategoryId,
+        event_date: resolvedEventDate,
+        is_featured: resolvedIsFeatured,
+        display_order: resolvedDisplayOrder,
       };
 
       console.log("[GALERI API] SAVE PHOTO PAYLOAD:", baseDbRow);
 
       let savedId = photoId;
+      let serverPhoto: any = null;
+
       if (isEditing) {
-        // Authenticated UPDATE
+        // Authenticated UPDATE via POST update-photo.php
         const updateRes = await updatePhoto({ id: photoId, ...baseDbRow });
         if (updateRes.error) {
           throw new Error(updateRes.error.message || "Gagal memperbarui foto di database.");
         }
+        if (updateRes.data?.data?.photo) {
+          serverPhoto = updateRes.data.data.photo;
+        }
       } else {
-        // Authenticated INSERT
+        // Authenticated INSERT via POST add-photo.php
         const addRes = await addPhoto(baseDbRow);
         if (addRes.error) {
           throw new Error(addRes.error.message || "Gagal menyimpan foto ke database.");
@@ -1032,21 +1063,28 @@ export default function AdminDashboard({
         if (addRes.data?.data?.id) {
           savedId = String(addRes.data.data.id);
         }
+        if (addRes.data?.data?.photo) {
+          serverPhoto = addRes.data.data.photo;
+        } else if (addRes.data?.data) {
+          serverPhoto = addRes.data.data;
+        }
       }
 
-      // Instantly update local state
+      // Instantly update local state with latest data from serverPhoto if available
       const updatedPhotoItem: Photo = {
-        id: savedId,
-        category_id: String(matchedAct?.category_id || photoFormData.activity_id),
-        activity_id: String(photoFormData.activity_id),
-        title: safeTitle,
-        image_url: finalImageUrl,
-        sort_order: photoFormData.sort_order || 0,
+        id: String(serverPhoto?.id || savedId),
+        category_id: String(serverPhoto?.category_id || matchedAct?.category_id || photoFormData.activity_id),
+        activity_id: String(serverPhoto?.activity_id || photoFormData.activity_id || (editingPhoto?.activity_id ? String(editingPhoto.activity_id) : "")),
+        title: serverPhoto?.title || safeTitle,
+        image_url: serverPhoto?.image_url || finalImageUrl,
+        description: serverPhoto?.description ?? resolvedDescription,
+        sort_order: serverPhoto?.display_order !== undefined
+          ? Number(serverPhoto.display_order)
+          : (photoFormData.sort_order || 0),
         aspect_ratio: photoAspectRatio,
-        created_at: editingPhoto
-          ? editingPhoto.created_at
-          : new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        is_featured: serverPhoto?.is_featured !== undefined ? !!serverPhoto.is_featured : (editingPhoto?.is_featured || false),
+        created_at: serverPhoto?.created_at || (editingPhoto ? editingPhoto.created_at : new Date().toISOString()),
+        updated_at: serverPhoto?.updated_at || new Date().toISOString(),
       };
 
       setPhotos((prev) => {
@@ -1164,6 +1202,7 @@ export default function AdminDashboard({
           await updatePhoto({
             id: fullPhoto.id,
             category_id: fullPhoto.category_id,
+            activity_id: fullPhoto.activity_id,
             title: fullPhoto.title,
             image_url: fullPhoto.image_url,
             display_order: order.sort_order,
@@ -1181,39 +1220,37 @@ export default function AdminDashboard({
 
   const handleSetCoverImage = async (photo: Photo) => {
     try {
-      const actId = photo.category_id || photo.activity_id;
+      const actId = photo.activity_id || photo.category_id;
       const currentAct = activities.find(a => String(a.id) === String(actId));
       if (!currentAct) {
         onShowToast("Kegiatan tidak ditemukan.", "error");
         return;
       }
       
-      const res = await fetch(`${API_BASE_URL}/categories.php`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: actId,
-          name: currentAct.title,
-          category: currentAct.category,
-          event_date: currentAct.date,
-          description: currentAct.description || "",
-          cover_image: photo.image_url,
-          background_video: currentAct.background_video || null,
-          status: currentAct.status || "published"
-        })
+      const { data, error } = await updateActivity({
+        id: actId,
+        title: currentAct.title,
+        slug: currentAct.slug,
+        google_drive_url: currentAct.google_drive_url || null,
+        description: currentAct.description || "",
+        category_id: currentAct.category_id || null,
+        event_date: currentAct.date,
+        cover_url: photo.image_url,
+        is_published: currentAct.status === "published" ? 1 : 0,
+        display_order: Number(currentAct.display_order || 0),
       });
       
-      if (!res.ok) throw new Error("Gagal mengatur cover kegiatan.");
-      const result = await res.json();
-      if (!result.success) throw new Error(result.message || "Gagal mengatur cover kegiatan.");
+      if (error || !data || data.success === false) {
+        throw new Error(data?.message || error?.message || "Gagal mengatur cover kegiatan.");
+      }
 
       onShowToast(
         "Foto ini berhasil dijadikan Cover Utama kegiatan.",
         "success",
       );
       fetchData();
-    } catch (err) {
-      onShowToast("Kesalahan koneksi atau server.", "error");
+    } catch (err: any) {
+      onShowToast(err?.message || "Kesalahan koneksi atau server.", "error");
     }
   };
 

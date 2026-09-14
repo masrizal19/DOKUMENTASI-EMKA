@@ -39,24 +39,26 @@ export interface ApiResponse<T = any> {
  */
 export async function apiRequest<T = any>(
   endpoint: string,
-  method: "GET" | "POST" | "PUT" | "DELETE" = "GET",
+  method: "GET" | "POST" | "DELETE" = "GET",
   body: any = null,
   isFormData: boolean = false,
   logTag?: string
 ): Promise<{ data: ApiResponse<T> | null; error: Error | null }> {
-  const tag = logTag || `[GALERI API] ${method} ${endpoint}`;
+  // LiteSpeed hosting blocks PUT and PATCH (HTTP 403 Forbidden). Force POST for any update requests.
+  const safeMethod = ((method as any) === "PUT" || (method as any) === "PATCH") ? "POST" : method;
+  const tag = logTag || `[GALERI API] ${safeMethod} ${endpoint}`;
   const headers: Record<string, string> = {};
 
-  if (!isFormData && body && method !== "GET") {
+  if (!isFormData && body && safeMethod !== "GET") {
     headers["Content-Type"] = "application/json";
   }
 
   const config: RequestInit = {
-    method,
+    method: safeMethod,
     headers,
   };
 
-  if (body && method !== "GET") {
+  if (body && safeMethod !== "GET") {
     config.body = isFormData ? body : JSON.stringify(body);
   }
 
@@ -403,27 +405,84 @@ export async function updatePhoto(data: {
   is_featured?: number | boolean;
   display_order?: number;
 } | FormData) {
-  console.log("[GALERI API] UPDATE photo request", data);
-  let formData: FormData;
-
   if (data instanceof FormData) {
-    formData = data;
-  } else {
-    formData = new FormData();
-    formData.append("id", String(data.id));
-    if (data.title !== undefined) formData.append("title", data.title);
-    if (data.description !== undefined) formData.append("description", data.description);
-    if (data.image_url !== undefined) formData.append("image_url", data.image_url);
-    if (data.category_id !== undefined) formData.append("category_id", String(data.category_id));
-    if (data.activity_id !== undefined && data.activity_id !== null) formData.append("activity_id", String(data.activity_id));
-    if (data.event_date !== undefined) formData.append("event_date", data.event_date);
-    if (data.is_featured !== undefined) formData.append("is_featured", data.is_featured ? "1" : "0");
-    if (data.display_order !== undefined) formData.append("display_order", String(data.display_order));
+    console.log("[GALERI API] UPDATE photo (FormData)");
+    return apiRequest("update-photo.php", "POST", data, true, "[GALERI API] UPDATE photo");
   }
 
-  const res = await apiRequest("update-photo.php", "POST", formData, true, "[GALERI API] UPDATE photo");
-  console.log("[GALERI API] UPDATE photo response", res);
-  return res;
+  // Bangun payload hanya dari field yang tersedia agar tidak menghilangkan data lama di server
+  const payload: Record<string, any> = {
+    id: Number(data.id),
+  };
+
+  if (data.title !== undefined && data.title !== null) {
+    payload.title = String(data.title).trim();
+  }
+  if (data.description !== undefined && data.description !== null) {
+    payload.description = String(data.description);
+  }
+  if (data.image_url !== undefined && data.image_url !== null && data.image_url !== "") {
+    payload.image_url = String(data.image_url).trim();
+  }
+  if (data.category_id !== undefined && data.category_id !== null && data.category_id !== "") {
+    payload.category_id = Number(data.category_id);
+  }
+  if (data.activity_id !== undefined && data.activity_id !== null && data.activity_id !== "") {
+    payload.activity_id = Number(data.activity_id);
+  } else if (data.activity_id === null) {
+    payload.activity_id = null;
+  }
+  if (data.event_date !== undefined && data.event_date !== null && data.event_date !== "") {
+    payload.event_date = String(data.event_date);
+  }
+  if (data.is_featured !== undefined && data.is_featured !== null) {
+    payload.is_featured = data.is_featured ? 1 : 0;
+  }
+  if (data.display_order !== undefined && data.display_order !== null) {
+    payload.display_order = Number(data.display_order);
+  }
+
+  console.log('[GALERI API] UPDATE photo payload:', payload);
+
+  const url = `${API_BASE_URL}/update-photo.php`;
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    console.log('[GALERI API] UPDATE photo STATUS', response.status);
+
+    let result: any = null;
+    try {
+      result = await response.json();
+    } catch {
+      const errorMsg = `Server mengembalikan response bukan JSON (HTTP ${response.status}).`;
+      console.error("[GALERI API] UPDATE photo Non-JSON Response:", errorMsg);
+      return { data: null, error: new Error(errorMsg) };
+    }
+
+    if (!response.ok || result?.success !== true) {
+      const errorMsg = result?.message || `Gagal memperbarui foto (HTTP ${response.status}).`;
+      console.error("[GALERI API] UPDATE photo Error:", errorMsg, result);
+      return { data: result, error: new Error(errorMsg) };
+    }
+
+    if (response.status === 200 && result?.success === true) {
+      console.log("[GALERI API] UPDATE photo Success:", result);
+      return { data: result, error: null };
+    }
+
+    return { data: result, error: null };
+  } catch (err: any) {
+    const detailedError = err instanceof Error ? err.message : String(err);
+    console.error("[GALERI API] UPDATE photo Network/Runtime Error:", detailedError);
+    return { data: null, error: new Error(detailedError) };
+  }
 }
 
 /**
@@ -556,11 +615,13 @@ export async function updateActivity(data: {
     return apiRequest("update-activity.php", "POST", data, true, "[GALERI API] UPDATE activity");
   }
 
-  const payload = {
+  const payload: Record<string, any> = {
     id: Number(data.id),
     title: data.title.trim(),
     slug: data.slug || data.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
-    google_drive_url: data.google_drive_url !== undefined ? (data.google_drive_url ? data.google_drive_url.trim() : null) : undefined,
+    google_drive_url: data.google_drive_url !== undefined
+      ? (data.google_drive_url ? data.google_drive_url.trim() : null)
+      : null,
     description: data.description || "",
     category_id: data.category_id ? Number(data.category_id) : null,
     event_date: data.event_date || new Date().toISOString().split("T")[0],
@@ -569,8 +630,46 @@ export async function updateActivity(data: {
     display_order: Number(data.display_order ?? 0),
   };
 
-  console.log("[GALERI API] UPDATE activity request", payload);
-  return apiRequest("update-activity.php", "POST", payload, false, "[GALERI API] UPDATE activity");
+  console.log('[GALERI API] UPDATE activity payload:', payload);
+
+  const url = `${API_BASE_URL}/update-activity.php`;
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    console.log('[GALERI API] UPDATE activity STATUS', response.status);
+
+    const raw = await response.text();
+    console.log('[GALERI API] UPDATE activity RAW RESPONSE', raw);
+
+    let parsedData: any;
+    try {
+      parsedData = JSON.parse(raw);
+    } catch {
+      const errorMsg = `Server mengembalikan response bukan JSON (HTTP ${response.status}): ${raw.substring(0, 300)}`;
+      console.error("[GALERI API] UPDATE activity Non-JSON Response:", errorMsg);
+      return { data: null, error: new Error(errorMsg) };
+    }
+
+    if (response.ok && (parsedData?.success === true || response.status === 200)) {
+      console.log("[GALERI API] UPDATE activity Success:", parsedData);
+      return { data: parsedData, error: null };
+    }
+
+    const errorMsg = parsedData?.message || `Gagal memperbarui kegiatan (HTTP ${response.status}).`;
+    console.error("[GALERI API] UPDATE activity Error:", errorMsg, parsedData);
+    return { data: parsedData, error: new Error(errorMsg) };
+  } catch (err: any) {
+    const detailedError = err instanceof Error ? err.message : String(err);
+    console.error("[GALERI API] UPDATE activity Network/Runtime Error:", detailedError);
+    return { data: null, error: new Error(detailedError) };
+  }
 }
 
 /**
