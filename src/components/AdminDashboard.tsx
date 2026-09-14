@@ -391,22 +391,44 @@ export default function AdminDashboard({
 
       let mappedPhotos: Photo[] = [];
       if (!photoErr && photosData && photosData.success && photosData.data) {
-        mappedPhotos = (photosData.data as any[]).map((row: any) => ({
-          id: String(row.id),
-          category_id: String(row.category_id || ""),
-          activity_id: row.activity_id ? String(row.activity_id) : (row.category_id ? String(row.category_id) : ""),
-          title: row.title || row.description || "Foto Galeri",
-          image_url: resolveImageUrl(row.image_url) || "",
-          description: row.description || "",
-          event_date: row.event_date || "0000-00-00",
-          sort_order: parseInt(row.display_order) || 0,
-          is_featured:
-            row.is_featured === "1" ||
-            row.is_featured === true ||
-            row.is_featured === 1,
-          created_at: row.created_at || new Date().toISOString(),
-          updated_at: row.updated_at || new Date().toISOString(),
-        }));
+        mappedPhotos = (photosData.data as any[]).map((row: any) => {
+          let resolvedActId = "";
+          if (row.activity_id !== undefined && row.activity_id !== null && String(row.activity_id).trim() !== "" && String(row.activity_id) !== "0") {
+            resolvedActId = String(row.activity_id);
+          } else if (row.activity_title) {
+            const foundByTitle = mappedActivities.find((a) => a.title.toLowerCase() === String(row.activity_title).toLowerCase());
+            if (foundByTitle) resolvedActId = String(foundByTitle.id);
+          } else if (mappedActivities.length === 1) {
+            resolvedActId = String(mappedActivities[0].id);
+          } else if (row.category_id) {
+            const actById = mappedActivities.find((a) => String(a.id) === String(row.category_id));
+            if (actById) {
+              resolvedActId = String(actById.id);
+            } else {
+              const actsWithSameCat = mappedActivities.filter((a) => String(a.category_id) === String(row.category_id));
+              if (actsWithSameCat.length === 1) {
+                resolvedActId = String(actsWithSameCat[0].id);
+              }
+            }
+          }
+
+          return {
+            id: String(row.id),
+            category_id: String(row.category_id || ""),
+            activity_id: resolvedActId,
+            title: row.title || row.description || "Foto Galeri",
+            image_url: resolveImageUrl(row.image_url) || "",
+            description: row.description || "",
+            event_date: row.event_date || "0000-00-00",
+            sort_order: parseInt(row.display_order) || 0,
+            is_featured:
+              row.is_featured === "1" ||
+              row.is_featured === true ||
+              row.is_featured === 1,
+            created_at: row.created_at || new Date().toISOString(),
+            updated_at: row.updated_at || new Date().toISOString(),
+          };
+        });
       }
 
       // Auto-assign cover from latest photo if activity has no cover
@@ -934,24 +956,106 @@ export default function AdminDashboard({
         ? "portrait"
         : "landscape";
     setPhotoAspectRatio(initialRatio);
-    const activeActId = photo.activity_id
-      ? String(photo.activity_id)
-      : photo.category_id
-      ? String(photo.category_id)
-      : "";
+
+    // Resolve the correct activity_id from activities table
+    let selectedActivityId = "";
+
+    // 1. Cek apakah photo.activity_id adalah ID kegiatan yang valid di tabel activities
+    if (photo.activity_id && activities.some((a) => String(a.id) === String(photo.activity_id))) {
+      selectedActivityId = String(photo.activity_id);
+    } 
+    // 2. Jika photo.activity_id ada angkanya
+    else if (photo.activity_id && !isNaN(Number(photo.activity_id)) && Number(photo.activity_id) > 0) {
+      const matchesAct = activities.some((a) => String(a.id) === String(photo.activity_id));
+      if (matchesAct) {
+        selectedActivityId = String(photo.activity_id);
+      }
+    }
+
+    // 3. Cek apakah photo.category_id sebenarnya adalah activity.id
+    if (!selectedActivityId && photo.category_id) {
+      const actById = activities.find((a) => String(a.id) === String(photo.category_id));
+      if (actById) {
+        selectedActivityId = String(actById.id);
+      } else {
+        // Cek activity yang memiliki category_id sama
+        const actsWithSameCat = activities.filter((a) => String(a.category_id) === String(photo.category_id));
+        if (actsWithSameCat.length === 1) {
+          selectedActivityId = String(actsWithSameCat[0].id);
+        }
+      }
+    }
+
+    // 4. Fallback jika masih kosong: gunakan kegiatan pertama
+    if (!selectedActivityId && activities.length > 0) {
+      selectedActivityId = String(activities[0].id);
+    }
+
+    console.log(
+      "[MEDIA EDIT] photo:",
+      photo
+    );
+
+    console.log(
+      "[MEDIA EDIT] photo.activity_id:",
+      photo.activity_id
+    );
+
+    console.log(
+      "[MEDIA EDIT] selected activity:",
+      selectedActivityId
+    );
+
     setPhotoFormData({
-      category_id: activeActId,
-      activity_id: activeActId,
-      title: photo.title,
-      image_url: photo.image_url,
-      sort_order: photo.sort_order,
+      category_id: selectedActivityId,
+      activity_id: selectedActivityId,
+      title: photo.title || "",
+      image_url: photo.image_url || "",
+      sort_order: photo.sort_order || 1,
     });
     setIsPhotoFormOpen(true);
   };
 
   const handleSavePhoto = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!photoFormData.activity_id) {
+
+    // 1. Dapatkan selectedActivityId dari input form
+    let selectedActivityId = photoFormData.activity_id ? String(photoFormData.activity_id) : "";
+
+    // Pastikan selectedActivityId adalah ID dari tabel activities, BUKAN category_id
+    let matchedAct = activities.find((a) => String(a.id) === selectedActivityId);
+
+    // Jika selectedActivityId tidak cocok dengan activity.id, cari apakah merupakan category_id
+    if (!matchedAct && selectedActivityId) {
+      const foundByCat = activities.find((a) => String(a.category_id) === selectedActivityId);
+      if (foundByCat) {
+        selectedActivityId = String(foundByCat.id);
+        matchedAct = foundByCat;
+      }
+    }
+
+    // Jika masih belum ada dan sedang mode edit, pertahankan activity_id lama
+    if (!matchedAct && editingPhoto) {
+      if (editingPhoto.activity_id && activities.some((a) => String(a.id) === String(editingPhoto.activity_id))) {
+        selectedActivityId = String(editingPhoto.activity_id);
+        matchedAct = activities.find((a) => String(a.id) === selectedActivityId);
+      } else if (editingPhoto.category_id) {
+        const found = activities.find((a) => String(a.id) === String(editingPhoto.category_id)) ||
+                      activities.find((a) => String(a.category_id) === String(editingPhoto.category_id));
+        if (found) {
+          selectedActivityId = String(found.id);
+          matchedAct = found;
+        }
+      }
+    }
+
+    // Jika masih belum ada dan ada kegiatan di database, fallback ke kegiatan pertama
+    if (!matchedAct && activities.length > 0) {
+      selectedActivityId = String(activities[0].id);
+      matchedAct = activities[0];
+    }
+
+    if (!selectedActivityId) {
       onShowToast("Pilih Kegiatan terlebih dahulu.", "error");
       return;
     }
@@ -1000,18 +1104,18 @@ export default function AdminDashboard({
       const isEditing = !!editingPhoto;
       const photoId = isEditing ? editingPhoto.id : Date.now().toString();
 
-      const matchedAct = activities.find((a) => String(a.id) === String(photoFormData.activity_id));
       const safeTitle =
         photoFormData.title?.trim() ||
         photoFile?.name?.replace(/\.[^/.]+$/, "") ||
+        editingPhoto?.title ||
         matchedAct?.title ||
         "Foto Kegiatan";
 
-      const resolvedActivityId = photoFormData.activity_id
-        ? Number(photoFormData.activity_id)
-        : (editingPhoto?.activity_id ? Number(editingPhoto.activity_id) : (editingPhoto?.category_id ? Number(editingPhoto.category_id) : null));
+      // Pastikan activity_id adalah ID numerik dari tabel activities (BUKAN category_id!)
+      const finalActivityId = Number(selectedActivityId);
 
-      const resolvedCategoryId = matchedAct?.category_id
+      // category_id diambil dari kategori kegiatan terkait
+      const finalCategoryId = matchedAct?.category_id
         ? Number(matchedAct.category_id)
         : (editingPhoto?.category_id ? Number(editingPhoto.category_id) : 1);
 
@@ -1029,25 +1133,29 @@ export default function AdminDashboard({
       const resolvedIsFeatured = editingPhoto?.is_featured ? 1 : 0;
       const resolvedDisplayOrder = Number(photoFormData.sort_order ?? editingPhoto?.sort_order ?? 0);
 
-      const baseDbRow = {
+      const payload = {
+        ...(isEditing ? { id: Number(photoId) } : {}),
         title: safeTitle,
         description: resolvedDescription,
         image_url: finalImageUrl,
-        activity_id: resolvedActivityId,
-        category_id: resolvedCategoryId,
+        category_id: finalCategoryId,
+        activity_id: finalActivityId,
         event_date: resolvedEventDate,
         is_featured: resolvedIsFeatured,
         display_order: resolvedDisplayOrder,
       };
 
-      console.log("[GALERI API] SAVE PHOTO PAYLOAD:", baseDbRow);
+      console.log(
+        "[MEDIA SAVE] payload:",
+        payload
+      );
 
       let savedId = photoId;
       let serverPhoto: any = null;
 
       if (isEditing) {
         // Authenticated UPDATE via POST update-photo.php
-        const updateRes = await updatePhoto({ id: photoId, ...baseDbRow });
+        const updateRes = await updatePhoto({ ...payload, id: Number(photoId) });
         if (updateRes.error) {
           throw new Error(updateRes.error.message || "Gagal memperbarui foto di database.");
         }
@@ -1056,7 +1164,7 @@ export default function AdminDashboard({
         }
       } else {
         // Authenticated INSERT via POST add-photo.php
-        const addRes = await addPhoto(baseDbRow);
+        const addRes = await addPhoto(payload);
         if (addRes.error) {
           throw new Error(addRes.error.message || "Gagal menyimpan foto ke database.");
         }
@@ -1073,8 +1181,8 @@ export default function AdminDashboard({
       // Instantly update local state with latest data from serverPhoto if available
       const updatedPhotoItem: Photo = {
         id: String(serverPhoto?.id || savedId),
-        category_id: String(serverPhoto?.category_id || matchedAct?.category_id || photoFormData.activity_id),
-        activity_id: String(serverPhoto?.activity_id || photoFormData.activity_id || (editingPhoto?.activity_id ? String(editingPhoto.activity_id) : "")),
+        category_id: String(serverPhoto?.category_id || finalCategoryId),
+        activity_id: String(serverPhoto?.activity_id || finalActivityId),
         title: serverPhoto?.title || safeTitle,
         image_url: serverPhoto?.image_url || finalImageUrl,
         description: serverPhoto?.description ?? resolvedDescription,

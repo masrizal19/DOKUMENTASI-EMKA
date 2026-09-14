@@ -176,19 +176,41 @@ export default function App() {
       // Map Photos
       let mappedPhotos: Photo[] = [];
       if (photosRes?.data?.success && Array.isArray(photosRes.data.data)) {
-        mappedPhotos = (photosRes.data.data as any[]).map((row: any) => ({
-          id: String(row.id),
-          category_id: String(row.category_id || ""),
-          activity_id: row.activity_id ? String(row.activity_id) : (row.category_id ? String(row.category_id) : ""),
-          title: row.title || row.description || "Foto Galeri",
-          image_url: row.image_url,
-          description: row.description || "",
-          event_date: row.event_date || "0000-00-00",
-          sort_order: parseInt(row.display_order) || 0,
-          is_featured: String(row.is_featured) === "1" || row.is_featured === true,
-          created_at: row.created_at || new Date().toISOString(),
-          updated_at: row.updated_at || new Date().toISOString()
-        }));
+        mappedPhotos = (photosRes.data.data as any[]).map((row: any) => {
+          let resolvedActId = "";
+          if (row.activity_id !== undefined && row.activity_id !== null && String(row.activity_id).trim() !== "" && String(row.activity_id) !== "0") {
+            resolvedActId = String(row.activity_id);
+          } else if (row.activity_title) {
+            const foundByTitle = mappedActivities.find((a) => a.title.toLowerCase() === String(row.activity_title).toLowerCase());
+            if (foundByTitle) resolvedActId = String(foundByTitle.id);
+          } else if (mappedActivities.length === 1) {
+            resolvedActId = String(mappedActivities[0].id);
+          } else if (row.category_id) {
+            const actById = mappedActivities.find((a) => String(a.id) === String(row.category_id));
+            if (actById) {
+              resolvedActId = String(actById.id);
+            } else {
+              const actsWithSameCat = mappedActivities.filter((a) => String(a.category_id) === String(row.category_id));
+              if (actsWithSameCat.length === 1) {
+                resolvedActId = String(actsWithSameCat[0].id);
+              }
+            }
+          }
+
+          return {
+            id: String(row.id),
+            category_id: String(row.category_id || ""),
+            activity_id: resolvedActId,
+            title: row.title || row.description || "Foto Galeri",
+            image_url: row.image_url,
+            description: row.description || "",
+            event_date: row.event_date || "0000-00-00",
+            sort_order: parseInt(row.display_order) || 0,
+            is_featured: String(row.is_featured) === "1" || row.is_featured === true,
+            created_at: row.created_at || new Date().toISOString(),
+            updated_at: row.updated_at || new Date().toISOString()
+          };
+        });
       }
 
       // Update state if fresh data was received
