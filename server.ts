@@ -4,7 +4,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
-import { Activity, Photo, Settings, SectionSetting, MediaItem } from "./src/types.js";
+import type { Activity, Photo, Settings, SectionSetting, MediaItem } from "./src/types.ts";
 
 // Load environment variables
 dotenv.config();
@@ -41,9 +41,27 @@ const finalFilename = resolvedFilename || getCJSFilename();
 const finalDirname = finalFilename ? path.dirname(finalFilename) : getCJSDirname();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const DB_PATH = path.join(process.cwd(), "db.json");
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
+
+// AI Studio internal control plane & health check endpoints
+app.get([
+  "/__aistudio_internal_control_plane/dev/status",
+  "/__aistudio_internal_control_plane/status",
+  "/__aistudio_internal_control_plane/*",
+  "/api/health",
+  "/healthz",
+  "/status"
+], (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    ready: true,
+    healthy: true,
+    service: "galeri-emka",
+    timestamp: new Date().toISOString()
+  });
+});
 
 console.log("Server initialized. Running on local db.json database with link-based media.");
 

@@ -835,23 +835,29 @@ export function getDirectTwibonApiUrl(endpoint: string = "twibon-list.php", quer
   return `${API_BASE_URL}/${cleanEndpoint}${q}`;
 }
 
-const formatTwibbonItem = (item: any) => ({
-  id: String(item.id),
-  title: item.title || "",
-  slug: item.slug || "",
-  description: item.description || "",
-  ratio: (item.ratio || "1:1") as "1:1" | "4:3" | "16:9" | "9:16",
-  designUrl: item.frame_url || item.design_url || item.designUrl || "",
-  design_url: item.frame_url || item.design_url || item.designUrl || "",
-  isActive: item.is_active === 1 || item.isActive === true || item.is_active === "1",
-  is_active: item.is_active === 1 || item.isActive === true || item.is_active === "1" ? 1 : 0,
-  useCount: Number(item.use_count ?? item.useCount ?? 0),
-  use_count: Number(item.use_count ?? item.useCount ?? 0),
-  createdAt: item.created_at || item.createdAt || new Date().toISOString(),
-  created_at: item.created_at || item.createdAt || new Date().toISOString(),
-  updatedAt: item.updated_at || item.updatedAt || new Date().toISOString(),
-  updated_at: item.updated_at || item.updatedAt || new Date().toISOString(),
-});
+const formatTwibbonItem = (item: any) => {
+  const frameUrl = item.frame_url || item.design_url || item.designUrl || "";
+  const isActive = item.is_active === 1 || item.isActive === true || item.is_active === "1" || item.is_active === true;
+  return {
+    id: item.id !== undefined ? String(item.id) : "",
+    title: String(item.title || ""),
+    slug: String(item.slug || ""),
+    description: String(item.description || ""),
+    ratio: (item.ratio || "1:1") as "1:1" | "4:3" | "16:9" | "9:16",
+    frame_url: frameUrl,
+    frameUrl: frameUrl,
+    designUrl: frameUrl,
+    design_url: frameUrl,
+    isActive: isActive,
+    is_active: isActive ? 1 : 0,
+    useCount: Number(item.use_count ?? item.useCount ?? 0),
+    use_count: Number(item.use_count ?? item.useCount ?? 0),
+    createdAt: item.created_at || item.createdAt || new Date().toISOString(),
+    created_at: item.created_at || item.createdAt || new Date().toISOString(),
+    updatedAt: item.updated_at || item.updatedAt || new Date().toISOString(),
+    updated_at: item.updated_at || item.updatedAt || new Date().toISOString(),
+  };
+};
 
 /**
  * 1. Fetch all Twibons or published/active-only Twibons
@@ -860,8 +866,8 @@ const formatTwibbonItem = (item: any) => ({
  */
 export async function fetchTwibbons(activeOnly: boolean = false): Promise<{ data: any[] | null; error: Error | null }> {
   const query = activeOnly ? `active=1&_t=${Date.now()}` : `_t=${Date.now()}`;
-  const primaryUrl = getTwibonApiUrl("twibon-list.php", query);
-  const directUrl = getDirectTwibonApiUrl("twibon-list.php", query);
+  const directUrl = `${API_BASE_URL}/twibon-list.php?${query}`;
+  const proxyUrl = `/api/twibon-list.php?${query}`;
 
   const fetchWithUrl = async (targetUrl: string) => {
     const res = await fetch(targetUrl, {
@@ -876,32 +882,43 @@ export async function fetchTwibbons(activeOnly: boolean = false): Promise<{ data
     return JSON.parse(text);
   };
 
+  let json: any = null;
+  let lastError: Error | null = null;
+
+  // Primary: direct call to PHP backend (https://api.mkverse.my.id/api/twibon-list.php)
   try {
-    let json: any;
-    try {
-      json = await fetchWithUrl(primaryUrl);
-    } catch {
-      json = await fetchWithUrl(directUrl);
-    }
-
-    if (json && (json.success === true || Array.isArray(json.data) || Array.isArray(json))) {
-      const rawList = Array.isArray(json.data) ? json.data : (Array.isArray(json) ? json : []);
-      return { data: rawList.map(formatTwibbonItem), error: null };
-    }
-
-    return { data: [], error: null };
+    json = await fetchWithUrl(directUrl);
   } catch (err: any) {
-    // Transparent retry
+    lastError = err;
+    // Fallback in dev/preview container if browser enforces cross-origin restriction
     try {
-      const fbJson = await fetchWithUrl(directUrl);
-      if (fbJson && (fbJson.success === true || Array.isArray(fbJson.data))) {
-        const rawList = Array.isArray(fbJson.data) ? fbJson.data : [];
-        return { data: rawList.map(formatTwibbonItem), error: null };
-      }
-    } catch {}
+      json = await fetchWithUrl(proxyUrl);
+      lastError = null;
+    } catch (err2: any) {
+      lastError = err2;
+    }
+  }
 
+  if (json) {
+    if (json.success === true && Array.isArray(json.data)) {
+      return { data: json.data.map(formatTwibbonItem), error: null };
+    }
+    if (Array.isArray(json.data)) {
+      return { data: json.data.map(formatTwibbonItem), error: null };
+    }
+    if (Array.isArray(json)) {
+      return { data: json.map(formatTwibbonItem), error: null };
+    }
+    if (json.success === false) {
+      return { data: null, error: new Error(json.message || "Gagal memuat data Twibon dari server.") };
+    }
     return { data: [], error: null };
   }
+
+  return {
+    data: null,
+    error: lastError || new Error("Gagal menghubungi server untuk memuat daftar Twibon."),
+  };
 }
 
 /**

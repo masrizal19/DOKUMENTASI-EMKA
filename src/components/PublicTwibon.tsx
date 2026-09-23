@@ -243,7 +243,7 @@ export default function PublicTwibon({
             <div className="bg-[#110e09] border border-[#4f4538]/20 rounded-sm p-6 sm:p-8 shadow-2xl">
               <TwibbonEditor
                 ratio={activeCampaign.ratio}
-                frameUrl={activeCampaign.designUrl || generateMockFrame(activeCampaign.title, activeCampaign.ratio)}
+                frameUrl={activeCampaign.frame_url || activeCampaign.frameUrl || activeCampaign.designUrl || activeCampaign.design_url || generateMockFrame(activeCampaign.title, activeCampaign.ratio)}
                 slug={activeCampaign.slug}
                 title={activeCampaign.title}
                 onShowToast={onShowToast}
@@ -317,16 +317,10 @@ export default function PublicTwibon({
                     }}
                   />
                   <img
-                    src={twibbon.designUrl || generateMockFrame(twibbon.title, twibbon.ratio)}
+                    src={twibbon.frame_url || twibbon.frameUrl || twibbon.designUrl || twibbon.design_url || generateMockFrame(twibbon.title, twibbon.ratio)}
                     alt={twibbon.title}
                     className="max-w-full max-h-full object-contain relative z-10 group-hover:scale-105 transition-transform duration-500"
                     referrerPolicy="no-referrer"
-                    onError={(e) => {
-                      const target = e.currentTarget;
-                      if (target.src.includes("api.mkverse.my.id/uploads/")) {
-                        target.src = target.src.replace("api.mkverse.my.id/uploads/", "api.mkverse.my.id/api/uploads/");
-                      }
-                    }}
                   />
                   
                   {/* Ratio pill info */}

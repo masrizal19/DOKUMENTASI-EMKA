@@ -12,7 +12,8 @@ interface AdminTwibonProps {
 export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
   const [twibbons, setTwibbons] = useState<Twibbon[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -42,18 +43,28 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
   const [isCheckingTransparency, setIsCheckingTransparency] = useState(false);
   const [transparencyWarn, setTransparencyWarn] = useState(false);
 
-  // Load Twibbons from MySQL via PHP Backend (Single Source of Truth)
+  // Load Twibbons directly from MySQL via PHP Backend (Single Source of Truth)
   const loadTwibbons = async () => {
     setIsLoading(true);
+    setError(null);
     clearLegacyTwibbonCache();
-    const res = await fetchTwibbons(false);
-    if (res.data) {
-      setTwibbons(res.data);
-    } else if (res.error) {
-      console.error("[ADMIN TWIBON] Load error:", res.error);
-      onShowToast(res.error.message || "Gagal memuat data Twibon dari database.", "error");
+    try {
+      const res = await fetchTwibbons(false);
+      if (res.error) {
+        console.error("[ADMIN TWIBON] Load error:", res.error);
+        setError(res.error.message || "Gagal memuat data Twibon dari database.");
+        onShowToast(res.error.message || "Gagal memuat data Twibon dari database.", "error");
+      } else if (res.data) {
+        setTwibbons(res.data);
+        setError(null);
+      }
+    } catch (err: any) {
+      const msg = err?.message || "Terjadi kesalahan saat memuat data Twibon.";
+      setError(msg);
+      onShowToast(msg, "error");
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   useEffect(() => {
@@ -188,9 +199,10 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
 
   // Open edit form
   const openEditModal = (twibbon: Twibbon) => {
+    const frame = twibbon.frame_url || twibbon.frameUrl || twibbon.designUrl || twibbon.design_url || "";
     setEditingTwibbon(twibbon);
     setSelectedFile(null);
-    setUploadedFileName(twibbon.designUrl ? "frame_existing.png" : "");
+    setUploadedFileName(frame ? frame.split("/").pop() || "frame.png" : "");
     setIsUploading(false);
     setTransparencyWarn(false);
     setIsCheckingTransparency(false);
@@ -199,8 +211,8 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
       slug: twibbon.slug,
       description: twibbon.description,
       ratio: twibbon.ratio,
-      designUrl: twibbon.designUrl,
-      isActive: twibbon.isActive
+      designUrl: frame,
+      isActive: twibbon.isActive ?? (twibbon.is_active === 1)
     });
     setIsFormOpen(true);
   };
@@ -374,11 +386,45 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
         />
       </div>
 
+      {/* ERROR BANNER */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-sm flex items-start justify-between gap-3 text-red-400">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+            <div>
+              <h4 className="font-subheading text-xs uppercase tracking-wider font-bold">Gagal Menghubungi API Twibon</h4>
+              <p className="font-body text-xs mt-1 text-red-300">{error}</p>
+            </div>
+          </div>
+          <button
+            onClick={loadTwibbons}
+            className="bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/30 px-3 py-1.5 rounded-sm font-subheading text-[10px] uppercase tracking-wider shrink-0 transition-all cursor-pointer"
+          >
+            Coba Lagi
+          </button>
+        </div>
+      )}
+
       {/* TWIBBON GRID */}
       {isLoading ? (
         <div className="flex flex-col items-center justify-center p-16 text-center bg-[#110e09]/40 border border-[#4f4538]/20 rounded-sm space-y-4">
           <Loader2 className="w-8 h-8 text-[#f6c374] animate-spin" />
           <p className="font-body text-xs text-[#d3c4b3]">Memuat data Twibon dari database MySQL...</p>
+        </div>
+      ) : error && twibbons.length === 0 ? (
+        <div className="flex flex-col items-center justify-center p-16 text-center bg-[#110e09]/40 border border-red-500/20 rounded-sm space-y-4">
+          <div className="w-12 h-12 rounded-full border border-red-500/30 flex items-center justify-center text-red-400 bg-[#110e09]">
+            <AlertCircle className="w-6 h-6" />
+          </div>
+          <p className="font-body text-xs text-red-300 max-w-sm leading-relaxed">
+            {error}
+          </p>
+          <button
+            onClick={loadTwibbons}
+            className="bg-[#d8a85c] hover:bg-[#f6c374] text-[#110e09] font-subheading text-xs tracking-widest uppercase font-bold py-2.5 px-6 rounded-sm transition-all shadow-md cursor-pointer"
+          >
+            Muat Ulang Data
+          </button>
         </div>
       ) : filteredTwibbons.length === 0 ? (
         <div className="flex flex-col items-center justify-center p-16 text-center bg-[#110e09]/40 border border-dashed border-[#4f4538]/20 rounded-sm space-y-4">
@@ -393,110 +439,115 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredTwibbons.map((twibbon) => (
-            <div
-              key={twibbon.id}
-              className={`bg-[#110e09] border transition-all duration-300 rounded-sm p-5 space-y-4 shadow-lg flex flex-col justify-between ${
-                twibbon.isActive ? "border-[#4f4538]/20 hover:border-[#f6c374]/30" : "border-[#4f4538]/10 opacity-70"
-              }`}
-            >
-              <div className="space-y-4">
-                {/* Visual Thumbnail Frame Container */}
-                <div className="aspect-square w-full rounded-sm overflow-hidden bg-[#17130e] border border-[#4f4538]/20 relative flex items-center justify-center p-2">
-                  {/* Checkerboard inside */}
-                  <div
-                    className="absolute inset-0 opacity-15"
-                    style={{
-                      backgroundImage: "linear-gradient(45deg, #1f1a12 25%, transparent 25%), linear-gradient(-45deg, #1f1a12 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #1f1a12 75%), linear-gradient(-45deg, transparent 75%, #1f1a12 75%)",
-                      backgroundSize: "15px 15px",
-                      backgroundPosition: "0 0, 0 7.5px, 7.5px -7.5px, -7.5px 0px"
-                    }}
-                  />
-                  <img
-                    src={twibbon.designUrl || generateMockFrame(twibbon.title, twibbon.ratio)}
-                    alt={twibbon.title}
-                    className="max-w-full max-h-full object-contain relative z-10"
-                    referrerPolicy="no-referrer"
-                    onError={(e) => {
-                      const target = e.currentTarget;
-                      if (target.src.includes("api.mkverse.my.id/uploads/")) {
-                        target.src = target.src.replace("api.mkverse.my.id/uploads/", "api.mkverse.my.id/api/uploads/");
-                      }
-                    }}
-                  />
-                  <span className="absolute top-3 left-3 bg-[#110e09]/90 border border-[#4f4538]/30 font-subheading text-[9px] tracking-widest text-[#f6c374] px-2.5 py-1 rounded-sm uppercase">
-                    Rasio {twibbon.ratio}
-                  </span>
-                </div>
-
-                {/* Title & Stats */}
-                <div className="space-y-1.5">
-                  <div className="flex justify-between items-start gap-2">
-                    <h3 className="font-display text-sm font-bold text-[#eae1d8] line-clamp-1">
-                      {twibbon.title}
-                    </h3>
-                    <span className="font-subheading text-[10px] tracking-wider text-[#9b8f7f] bg-[#17130e] px-2 py-0.5 rounded-sm shrink-0 border border-[#4f4538]/10">
-                      {twibbon.useCount} Diunduh
+          {filteredTwibbons.map((twibbon) => {
+            const isTwibbonActive = twibbon.isActive ?? (twibbon.is_active === 1);
+            const frameSrc = twibbon.frame_url || twibbon.frameUrl || twibbon.designUrl || twibbon.design_url || "";
+            return (
+              <div
+                key={twibbon.id}
+                className={`bg-[#110e09] border transition-all duration-300 rounded-sm p-5 space-y-4 shadow-lg flex flex-col justify-between ${
+                  isTwibbonActive ? "border-[#4f4538]/20 hover:border-[#f6c374]/30" : "border-[#4f4538]/10 opacity-70"
+                }`}
+              >
+                <div className="space-y-4">
+                  {/* Visual Thumbnail Frame Container */}
+                  <div className="aspect-square w-full rounded-sm overflow-hidden bg-[#17130e] border border-[#4f4538]/20 relative flex items-center justify-center p-2">
+                    {/* Checkerboard inside */}
+                    <div
+                      className="absolute inset-0 opacity-15"
+                      style={{
+                        backgroundImage: "linear-gradient(45deg, #1f1a12 25%, transparent 25%), linear-gradient(-45deg, #1f1a12 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #1f1a12 75%), linear-gradient(-45deg, transparent 75%, #1f1a12 75%)",
+                        backgroundSize: "15px 15px",
+                        backgroundPosition: "0 0, 0 7.5px, 7.5px -7.5px, -7.5px 0px"
+                      }}
+                    />
+                    <img
+                      src={frameSrc || generateMockFrame(twibbon.title, twibbon.ratio)}
+                      alt={twibbon.title}
+                      className="max-w-full max-h-full object-contain relative z-10"
+                      referrerPolicy="no-referrer"
+                    />
+                    <span className="absolute top-3 left-3 bg-[#110e09]/90 border border-[#4f4538]/30 font-subheading text-[9px] tracking-widest text-[#f6c374] px-2.5 py-1 rounded-sm uppercase">
+                      Rasio {twibbon.ratio}
+                    </span>
+                    <span className={`absolute top-3 right-3 border font-subheading text-[9px] tracking-widest px-2.5 py-1 rounded-sm uppercase ${
+                      isTwibbonActive
+                        ? "bg-emerald-950/80 border-emerald-500/40 text-emerald-400"
+                        : "bg-amber-950/80 border-amber-500/40 text-amber-400"
+                    }`}>
+                      {isTwibbonActive ? "Aktif" : "Draft"}
                     </span>
                   </div>
-                  
-                  {/* Public link copy button or visual */}
-                  <p className="font-body text-[10px] text-[#f6c374]/80 break-all bg-[#17130e]/50 py-1 px-2 rounded-sm border border-[#4f4538]/5">
-                    /twibon/{twibbon.slug}
-                  </p>
 
-                  <p className="font-body text-xs text-[#9b8f7f] line-clamp-2 leading-relaxed">
-                    {twibbon.description}
-                  </p>
+                  {/* Title & Stats */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-start gap-2">
+                      <h3 className="font-display text-sm font-bold text-[#eae1d8] line-clamp-1">
+                        {twibbon.title}
+                      </h3>
+                      <span className="font-subheading text-[10px] tracking-wider text-[#9b8f7f] bg-[#17130e] px-2 py-0.5 rounded-sm shrink-0 border border-[#4f4538]/10">
+                        {twibbon.useCount} Diunduh
+                      </span>
+                    </div>
+                    
+                    {/* Public link copy button or visual */}
+                    <p className="font-body text-[10px] text-[#f6c374]/80 break-all bg-[#17130e]/50 py-1 px-2 rounded-sm border border-[#4f4538]/5">
+                      /twibon/{twibbon.slug}
+                    </p>
+
+                    <p className="font-body text-xs text-[#9b8f7f] line-clamp-2 leading-relaxed">
+                      {twibbon.description}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-between pt-4 border-t border-[#4f4538]/10 mt-2">
+                  <button
+                    onClick={(e) => handleToggleActive(twibbon, e)}
+                    className="flex items-center gap-1.5 font-subheading text-[10px] tracking-wider uppercase text-[#d3c4b3] hover:text-[#eae1d8] cursor-pointer"
+                    title={isTwibbonActive ? "Nonaktifkan" : "Aktifkan"}
+                  >
+                    {isTwibbonActive ? (
+                      <>
+                        <ToggleRight className="w-5 h-5 text-green-500" />
+                        <span className="text-green-400">Aktif</span>
+                      </>
+                    ) : (
+                      <>
+                        <ToggleLeft className="w-5 h-5 text-[#4f4538]" />
+                        <span className="text-[#9b8f7f]">Draft</span>
+                      </>
+                    )}
+                  </button>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={(e) => handlePreview(twibbon, e)}
+                      className="p-2 rounded-sm bg-[#17130e] border border-[#4f4538]/25 text-[#f6c374] hover:bg-[#39342e]/30 transition-all cursor-pointer"
+                      title="Uji Preview"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => openEditModal(twibbon)}
+                      className="p-2 rounded-sm bg-[#17130e] border border-[#4f4538]/25 text-[#d3c4b3] hover:bg-[#39342e]/30 transition-all cursor-pointer"
+                      title="Edit Kampanye"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => confirmDelete(twibbon, e)}
+                      className="p-2 rounded-sm bg-[#17130e] border border-[#4f4538]/25 text-red-400 hover:bg-red-950/20 transition-all cursor-pointer"
+                      title="Hapus Kampanye"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-between pt-4 border-t border-[#4f4538]/10 mt-2">
-                <button
-                  onClick={(e) => handleToggleActive(twibbon, e)}
-                  className="flex items-center gap-1.5 font-subheading text-[10px] tracking-wider uppercase text-[#d3c4b3] hover:text-[#eae1d8]"
-                  title={twibbon.isActive ? "Nonaktifkan" : "Aktifkan"}
-                >
-                  {twibbon.isActive ? (
-                    <>
-                      <ToggleRight className="w-5 h-5 text-green-500" />
-                      <span>Aktif</span>
-                    </>
-                  ) : (
-                    <>
-                      <ToggleLeft className="w-5 h-5 text-[#4f4538]" />
-                      <span>Draft</span>
-                    </>
-                  )}
-                </button>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={(e) => handlePreview(twibbon, e)}
-                    className="p-2 rounded-sm bg-[#17130e] border border-[#4f4538]/25 text-[#f6c374] hover:bg-[#39342e]/30 transition-all"
-                    title="Uji Preview"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => openEditModal(twibbon)}
-                    className="p-2 rounded-sm bg-[#17130e] border border-[#4f4538]/25 text-[#d3c4b3] hover:bg-[#39342e]/30 transition-all"
-                    title="Edit Kampanye"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={(e) => confirmDelete(twibbon, e)}
-                    className="p-2 rounded-sm bg-[#17130e] border border-[#4f4538]/25 text-red-400 hover:bg-red-950/20 transition-all"
-                    title="Hapus Kampanye"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -787,7 +838,7 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
             <div className="p-6">
               <TwibbonEditor
                 ratio={previewTwibbon.ratio}
-                frameUrl={previewTwibbon.designUrl || generateMockFrame(previewTwibbon.title, previewTwibbon.ratio)}
+                frameUrl={previewTwibbon.frame_url || previewTwibbon.frameUrl || previewTwibbon.designUrl || previewTwibbon.design_url || generateMockFrame(previewTwibbon.title, previewTwibbon.ratio)}
                 slug={previewTwibbon.slug}
                 title={previewTwibbon.title}
                 onShowToast={onShowToast}

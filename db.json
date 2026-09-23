@@ -434,5 +434,42 @@
       "created_at": "2026-09-23T06:58:27.385Z"
     }
   ],
-  "twibons": []
+  "twibons": [
+    {
+      "id": 4,
+      "title": "TES2",
+      "slug": "tes2",
+      "description": "",
+      "ratio": "1:1",
+      "design_url": "https://api.mkverse.my.id/uploads/twibon/pngtree-pita-bendera-indonesia-bingkai-merah-8296948-20260923140544-931f82ef.png",
+      "designUrl": "https://api.mkverse.my.id/uploads/twibon/pngtree-pita-bendera-indonesia-bingkai-merah-8296948-20260923140544-931f82ef.png",
+      "frame_url": "https://api.mkverse.my.id/uploads/twibon/pngtree-pita-bendera-indonesia-bingkai-merah-8296948-20260923140544-931f82ef.png",
+      "is_active": 1,
+      "isActive": true,
+      "use_count": 0,
+      "useCount": 0,
+      "created_at": "2026-09-23 21:05:55",
+      "createdAt": "2026-09-23 21:05:55",
+      "updated_at": "2026-09-23 21:05:55",
+      "updatedAt": "2026-09-23 21:05:55"
+    },
+    {
+      "id": 3,
+      "title": "TES",
+      "slug": "tes",
+      "description": "",
+      "ratio": "1:1",
+      "design_url": "https://api.mkverse.my.id/uploads/twibon/pngtree-pita-bendera-indonesia-bingkai-merah-8296948-20260923135906-bb031122.png",
+      "designUrl": "https://api.mkverse.my.id/uploads/twibon/pngtree-pita-bendera-indonesia-bingkai-merah-8296948-20260923135906-bb031122.png",
+      "frame_url": "https://api.mkverse.my.id/uploads/twibon/pngtree-pita-bendera-indonesia-bingkai-merah-8296948-20260923135906-bb031122.png",
+      "is_active": 1,
+      "isActive": true,
+      "use_count": 0,
+      "useCount": 0,
+      "created_at": "2026-09-23 21:05:33",
+      "createdAt": "2026-09-23 21:05:33",
+      "updated_at": "2026-09-23 21:05:33",
+      "updatedAt": "2026-09-23 21:05:33"
+    }
+  ]
 }
