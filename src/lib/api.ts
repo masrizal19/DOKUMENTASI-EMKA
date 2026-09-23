@@ -817,22 +817,16 @@ export async function deleteActivity(id: string | number) {
  * Helper to determine best API endpoint URL for Twibon.
  * Routes through same-origin /api proxy in preview/dev, or direct to PHP API.
  */
-export function getTwibonApiUrl(endpoint: string = "twibon-list.php", query: string = ""): string {
-  const isPreviewOrLocal =
-    typeof window !== "undefined" &&
-    window.location.origin &&
-    !window.location.origin.includes("galerifoto.mkverse.my.id");
+const TWIBON_API_BASE = "https://api.mkverse.my.id/api";
 
-  const base = isPreviewOrLocal ? "/api" : API_BASE_URL;
+export function getTwibonApiUrl(endpoint: string = "twibon-list.php", query: string = ""): string {
   const cleanEndpoint = endpoint.startsWith("/") ? endpoint.slice(1) : endpoint;
   const q = query ? (query.startsWith("?") ? query : `?${query}`) : "";
-  return `${base}/${cleanEndpoint}${q}`;
+  return `${TWIBON_API_BASE}/${cleanEndpoint}${q}`;
 }
 
 export function getDirectTwibonApiUrl(endpoint: string = "twibon-list.php", query: string = ""): string {
-  const cleanEndpoint = endpoint.startsWith("/") ? endpoint.slice(1) : endpoint;
-  const q = query ? (query.startsWith("?") ? query : `?${query}`) : "";
-  return `${API_BASE_URL}/${cleanEndpoint}${q}`;
+  return getTwibonApiUrl(endpoint, query);
 }
 
 const formatTwibbonItem = (item: any) => {
@@ -861,103 +855,120 @@ const formatTwibbonItem = (item: any) => {
 
 /**
  * 1. Fetch all Twibons or published/active-only Twibons
- * Endpoint: twibon-list.php
- * Single source of truth: PHP API + MySQL Database
+ * Endpoint persis: https://api.mkverse.my.id/api/twibon-list.php
+ * Langsung ke endpoint backend tanpa relative URL dan tanpa cache-buster
  */
 export async function fetchTwibbons(activeOnly: boolean = false): Promise<{ data: any[] | null; error: Error | null }> {
-  const query = activeOnly ? `active=1&_t=${Date.now()}` : `_t=${Date.now()}`;
-  const directUrl = `${API_BASE_URL}/twibon-list.php?${query}`;
-  const proxyUrl = `/api/twibon-list.php?${query}`;
+  const targetUrl = activeOnly
+    ? "https://api.mkverse.my.id/api/twibon-list.php?active=1"
+    : "https://api.mkverse.my.id/api/twibon-list.php";
 
-  const fetchWithUrl = async (targetUrl: string) => {
+  try {
     const res = await fetch(targetUrl, {
       method: "GET",
       cache: "no-store",
       headers: {
-        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-        "Pragma": "no-cache",
+        "Accept": "application/json",
       },
     });
-    const text = await res.text();
-    return JSON.parse(text);
-  };
 
-  let json: any = null;
-  let lastError: Error | null = null;
-
-  // Primary: direct call to PHP backend (https://api.mkverse.my.id/api/twibon-list.php)
-  try {
-    json = await fetchWithUrl(directUrl);
-  } catch (err: any) {
-    lastError = err;
-    // Fallback in dev/preview container if browser enforces cross-origin restriction
-    try {
-      json = await fetchWithUrl(proxyUrl);
-      lastError = null;
-    } catch (err2: any) {
-      lastError = err2;
+    // Validasi status HTTP sebelum melakukan parsing JSON
+    if (!res.ok) {
+      return {
+        data: null,
+        error: new Error(`HTTP Error ${res.status}: ${res.statusText || "Gagal mengambil data dari API"}`),
+      };
     }
-  }
 
-  if (json) {
-    if (json.success === true && Array.isArray(json.data)) {
+    const contentType = res.headers.get("content-type") || "";
+    const rawText = await res.text();
+
+    if (!contentType.includes("application/json") && !rawText.trim().startsWith("{") && !rawText.trim().startsWith("[")) {
+      return {
+        data: null,
+        error: new Error(`Response bukan JSON (HTTP ${res.status}): ${rawText.slice(0, 100)}`),
+      };
+    }
+
+    let json: any;
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      return {
+        data: null,
+        error: new Error(`Format response API tidak valid (HTTP ${res.status})`),
+      };
+    }
+
+    // Gunakan response.data sebagai sumber daftar Twibon
+    if (json && json.success === true && Array.isArray(json.data)) {
       return { data: json.data.map(formatTwibbonItem), error: null };
     }
-    if (Array.isArray(json.data)) {
+    if (json && Array.isArray(json.data)) {
       return { data: json.data.map(formatTwibbonItem), error: null };
     }
     if (Array.isArray(json)) {
       return { data: json.map(formatTwibbonItem), error: null };
     }
-    if (json.success === false) {
+    if (json && json.success === false) {
       return { data: null, error: new Error(json.message || "Gagal memuat data Twibon dari server.") };
     }
-    return { data: [], error: null };
-  }
 
-  return {
-    data: null,
-    error: lastError || new Error("Gagal menghubungi server untuk memuat daftar Twibon."),
-  };
+    return { data: [], error: null };
+  } catch (err: any) {
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err?.message || err)),
+    };
+  }
 }
 
 /**
  * 2. Fetch Twibon detail by slug or ID
- * Endpoint: twibon-detail.php?id=ID / ?slug=SLUG
- * Single source of truth: PHP API + MySQL Database
+ * Endpoint persis: https://api.mkverse.my.id/api/twibon-detail.php?id=ID / ?slug=SLUG
  */
 export async function fetchTwibbonDetail(slugOrId: string | number): Promise<{ data: any | null; error: Error | null }> {
   const isId = typeof slugOrId === "number" || (/^\d+$/.test(String(slugOrId)) && !String(slugOrId).includes("-"));
   const param = isId ? `id=${slugOrId}` : `slug=${encodeURIComponent(slugOrId)}`;
-  const query = `${param}&_t=${Date.now()}`;
-  const primaryUrl = getTwibonApiUrl("twibon-detail.php", query);
-  const directUrl = getDirectTwibonApiUrl("twibon-detail.php", query);
+  const directUrl = `https://api.mkverse.my.id/api/twibon-detail.php?${param}`;
 
-  const fetchWithUrl = async (targetUrl: string) => {
-    const res = await fetch(targetUrl, {
+  try {
+    const res = await fetch(directUrl, {
       method: "GET",
       cache: "no-store",
       headers: {
-        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-        "Pragma": "no-cache",
+        "Accept": "application/json",
       },
     });
-    const text = await res.text();
-    return { status: res.status, json: JSON.parse(text) };
-  };
 
-  try {
-    let result: { status: number; json: any };
-    try {
-      result = await fetchWithUrl(primaryUrl);
-    } catch {
-      result = await fetchWithUrl(directUrl);
+    if (!res.ok) {
+      if (res.status === 404) {
+        return { data: null, error: new Error("Twibon tidak ditemukan atau sudah dihapus.") };
+      }
+      return {
+        data: null,
+        error: new Error(`HTTP Error ${res.status}: ${res.statusText || "Gagal mengambil detail Twibon"}`),
+      };
     }
 
-    const { status, json } = result;
+    const contentType = res.headers.get("content-type") || "";
+    const rawText = await res.text();
 
-    if (status === 404 || (json && json.success === false && json.message?.toLowerCase().includes("tidak ditemukan"))) {
-      return { data: null, error: new Error("Twibon tidak ditemukan atau sudah dihapus.") };
+    if (!contentType.includes("application/json") && !rawText.trim().startsWith("{")) {
+      return {
+        data: null,
+        error: new Error(`Response bukan JSON (HTTP ${res.status}): ${rawText.slice(0, 100)}`),
+      };
+    }
+
+    let json: any;
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      return {
+        data: null,
+        error: new Error(`Format response API tidak valid (HTTP ${res.status})`),
+      };
     }
 
     if (json && json.success === true && json.data) {
@@ -966,22 +977,13 @@ export async function fetchTwibbonDetail(slugOrId: string | number): Promise<{ d
 
     return { data: null, error: new Error(json?.message || "Twibon tidak ditemukan atau sudah dihapus.") };
   } catch (err: any) {
-    try {
-      const { json } = await fetchWithUrl(directUrl);
-      if (json && json.success === true && json.data) {
-        return { data: formatTwibbonItem(json.data), error: null };
-      }
-    } catch {}
-
     return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
   }
 }
 
 /**
  * 3. Upload Twibon Frame PNG file to backend endpoint:
- * Endpoint: twibon-upload.php
- * Field: 'file' (FormData)
- * Content-Type: multipart/form-data boundary automatically set by browser
+ * Endpoint: https://api.mkverse.my.id/api/twibon-upload.php
  */
 export async function uploadTwibbonFrame(
   file: File
@@ -989,47 +991,38 @@ export async function uploadTwibbonFrame(
   const formData = new FormData();
   formData.append("file", file);
 
-  const directEndpoint = "https://api.mkverse.my.id/api/twibon-upload.php";
-  const proxyEndpoint = "/api/twibon-upload.php";
-
-  const isPreviewOrLocal =
-    typeof window !== "undefined" &&
-    window.location.origin &&
-    !window.location.origin.includes("galerifoto.mkverse.my.id");
-
-  const primaryUrl = isPreviewOrLocal ? proxyEndpoint : directEndpoint;
-  const secondaryUrl = isPreviewOrLocal ? directEndpoint : proxyEndpoint;
-
-  const doUpload = async (targetUrl: string) => {
-    const res = await fetch(targetUrl, {
-      method: "POST",
-      // CRITICAL: Do NOT set Content-Type header so browser generates multipart boundary automatically
-      body: formData,
-    });
-    const text = await res.text();
-    let json: any;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      throw new Error(`Server mengembalikan response bukan JSON (HTTP ${res.status}): ${text.substring(0, 100)}`);
-    }
-    return json;
-  };
+  const endpoint = "https://api.mkverse.my.id/api/twibon-upload.php";
 
   try {
-    let result: any;
-    try {
-      result = await doUpload(primaryUrl);
-    } catch {
-      result = await doUpload(secondaryUrl);
+    const res = await fetch(endpoint, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!res.ok) {
+      return {
+        url: null,
+        error: `HTTP Error ${res.status}: Gagal mengunggah file frame`,
+      };
     }
 
-    if (result && result.success && result.data) {
-      const serverUrl = result.data.url || result.data.public_url;
+    const rawText = await res.text();
+    let json: any;
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      return {
+        url: null,
+        error: `Response bukan JSON valid (HTTP ${res.status}): ${rawText.slice(0, 100)}`,
+      };
+    }
+
+    if (json && json.success && json.data) {
+      const serverUrl = json.data.url || json.data.public_url || json.data.frame_url;
       if (serverUrl) {
         return {
           url: serverUrl,
-          filename: result.data.filename,
+          filename: json.data.filename,
           error: null,
         };
       }
@@ -1037,7 +1030,7 @@ export async function uploadTwibbonFrame(
 
     return {
       url: null,
-      error: result?.message || "Gagal mengunggah frame Twibon ke server.",
+      error: json?.message || "Gagal mengunggah frame Twibon ke server.",
     };
   } catch (err: any) {
     return {
@@ -1049,7 +1042,7 @@ export async function uploadTwibbonFrame(
 
 /**
  * 4. Add / Create Twibon in MySQL via PHP Backend
- * Endpoint: twibon-save.php
+ * Endpoint: https://api.mkverse.my.id/api/twibon-save.php
  */
 export async function addTwibbon(data: {
   title: string;
@@ -1080,25 +1073,31 @@ export async function addTwibbon(data: {
     is_active: data.is_active === 0 || data.is_active === false ? 0 : 1,
   };
 
-  const primaryUrl = getTwibonApiUrl("twibon-save.php");
-  const directUrl = getDirectTwibonApiUrl("twibon-save.php");
-
-  const executePost = async (targetUrl: string) => {
-    const res = await fetch(targetUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    return JSON.parse(text);
-  };
+  const endpoint = "https://api.mkverse.my.id/api/twibon-save.php";
 
   try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      return {
+        data: null,
+        error: new Error(`HTTP Error ${res.status}: Gagal menyimpan kampanye Twibon`),
+      };
+    }
+
+    const rawText = await res.text();
     let json: any;
     try {
-      json = await executePost(primaryUrl);
+      json = JSON.parse(rawText);
     } catch {
-      json = await executePost(directUrl);
+      return {
+        data: null,
+        error: new Error(`Response bukan JSON valid (HTTP ${res.status}): ${rawText.slice(0, 100)}`),
+      };
     }
 
     if (json && json.success) {
@@ -1112,7 +1111,7 @@ export async function addTwibbon(data: {
 
 /**
  * 5. Update Twibon in MySQL via PHP Backend
- * Endpoint: twibon-update.php
+ * Endpoint: https://api.mkverse.my.id/api/twibon-update.php
  */
 export async function updateTwibbon(data: {
   id: string | number;
@@ -1151,25 +1150,31 @@ export async function updateTwibbon(data: {
     body.is_active = data.is_active ? 1 : 0;
   }
 
-  const primaryUrl = getTwibonApiUrl("twibon-update.php");
-  const directUrl = getDirectTwibonApiUrl("twibon-update.php");
-
-  const executePost = async (targetUrl: string) => {
-    const res = await fetch(targetUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    return JSON.parse(text);
-  };
+  const endpoint = "https://api.mkverse.my.id/api/twibon-update.php";
 
   try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      return {
+        data: null,
+        error: new Error(`HTTP Error ${res.status}: Gagal memperbarui kampanye Twibon`),
+      };
+    }
+
+    const rawText = await res.text();
     let json: any;
     try {
-      json = await executePost(primaryUrl);
+      json = JSON.parse(rawText);
     } catch {
-      json = await executePost(directUrl);
+      return {
+        data: null,
+        error: new Error(`Response bukan JSON valid (HTTP ${res.status}): ${rawText.slice(0, 100)}`),
+      };
     }
 
     if (json && json.success) {
@@ -1183,30 +1188,35 @@ export async function updateTwibbon(data: {
 
 /**
  * 6. Delete Twibon from MySQL via PHP Backend
- * Endpoint: twibon-delete.php
+ * Endpoint: https://api.mkverse.my.id/api/twibon-delete.php
  */
 export async function deleteTwibbon(id: string | number): Promise<{ data: any | null; error: Error | null }> {
   const numericId = Number(id);
-  const body = { id: numericId };
-  const primaryUrl = getTwibonApiUrl("twibon-delete.php");
-  const directUrl = getDirectTwibonApiUrl("twibon-delete.php");
-
-  const executePost = async (targetUrl: string) => {
-    const res = await fetch(targetUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    return JSON.parse(text);
-  };
+  const endpoint = "https://api.mkverse.my.id/api/twibon-delete.php";
 
   try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({ id: numericId }),
+    });
+
+    if (!res.ok) {
+      return {
+        data: null,
+        error: new Error(`HTTP Error ${res.status}: Gagal menghapus Twibon`),
+      };
+    }
+
+    const rawText = await res.text();
     let json: any;
     try {
-      json = await executePost(primaryUrl);
+      json = JSON.parse(rawText);
     } catch {
-      json = await executePost(directUrl);
+      return {
+        data: null,
+        error: new Error(`Response bukan JSON valid (HTTP ${res.status})`),
+      };
     }
 
     if (json && json.success) {
@@ -1220,42 +1230,35 @@ export async function deleteTwibbon(id: string | number): Promise<{ data: any | 
 
 /**
  * 7. Delete Twibon Frame file on disk via PHP Backend
- * Endpoint: twibon-delete-file.php
+ * Endpoint: https://api.mkverse.my.id/api/twibon-delete-file.php
  */
 export async function deleteTwibbonFile(filename: string): Promise<{ data: any | null; error: Error | null }> {
   if (!filename) return { data: null, error: null };
-  const body = { filename };
-  const primaryUrl = getTwibonApiUrl("twibon-delete-file.php");
-  const directUrl = getDirectTwibonApiUrl("twibon-delete-file.php");
+  const endpoint = "https://api.mkverse.my.id/api/twibon-delete-file.php";
 
   try {
-    const res = await fetch(primaryUrl, {
+    const res = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }).catch(() =>
-      fetch(directUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      })
-    );
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({ filename }),
+    });
+    if (!res.ok) return { data: null, error: null };
     const json = await res.json();
     return { data: json.data, error: null };
-  } catch (err: any) {
+  } catch {
     return { data: null, error: null }; // Non-blocking
   }
 }
 
 /**
  * 8. Increment use/download count for a Twibon in MySQL
- * Endpoint: twibon-update.php or twibon.php (action=increment_use)
+ * Endpoint: https://api.mkverse.my.id/api/twibon-update.php
  */
 export async function incrementTwibbonUse(id: string | number): Promise<void> {
   const numericId = Number(id);
-  const primaryUrl = getTwibonApiUrl("twibon.php");
+  const endpoint = "https://api.mkverse.my.id/api/twibon.php";
   try {
-    await fetch(primaryUrl, {
+    await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "increment_use", id: numericId }),
@@ -1267,19 +1270,20 @@ export async function incrementTwibbonUse(id: string | number): Promise<void> {
 
 /**
  * 9. Fetch Twibon Settings
- * Endpoint: twibon-settings.php
+ * Endpoint: https://api.mkverse.my.id/api/twibon-settings.php
  */
 export async function fetchTwibbonSettings(): Promise<{ data: any | null; error: Error | null }> {
-  const primaryUrl = getTwibonApiUrl("twibon-settings.php");
+  const endpoint = "https://api.mkverse.my.id/api/twibon-settings.php";
   try {
-    const res = await fetch(primaryUrl, {
+    const res = await fetch(endpoint, {
       method: "GET",
       cache: "no-store",
     });
+    if (!res.ok) return { data: null, error: new Error(`HTTP Error ${res.status}`) };
     const json = await res.json();
     return { data: json.data || json, error: null };
   } catch (err: any) {
-    return { data: null, error: err };
+    return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
   }
 }
 
