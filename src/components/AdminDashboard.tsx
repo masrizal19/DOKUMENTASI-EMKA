@@ -157,8 +157,15 @@ export default function AdminDashboard({
   const [photoAspectRatio, setPhotoAspectRatio] = useState<
     "landscape" | "portrait"
   >("landscape");
-  const [photoFormData, setPhotoFormData] = useState({
+  const [photoFormData, setPhotoFormData] = useState<{
+    activity_id: string;
+    category_id?: string;
+    title: string;
+    image_url: string;
+    sort_order: number;
+  }>({
     activity_id: "",
+    category_id: "",
     title: "",
     image_url: "",
     sort_order: 1,

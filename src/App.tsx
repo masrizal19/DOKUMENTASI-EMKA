@@ -18,7 +18,56 @@ import { resolveImageUrl } from "./lib/storage.js";
 import { getAdminSession, isAdminAuthenticated, performAdminLogout } from "./lib/adminAuth.js";
 import { fetchPhotos, fetchCategories, fetchSettings, fetchActivities, fetchVisionMission } from "./lib/api.js";
 
+function getInitialRoute(): {
+  tab: "beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "detail-kegiatan" | "admin" | "twibon";
+  slug: string;
+} {
+  if (typeof window === "undefined") {
+    return { tab: "beranda", slug: "" };
+  }
+  const hash = window.location.hash || "";
+  const pathname = window.location.pathname || "";
+  const search = window.location.search || "";
+
+  let detectedTwibonSlug = "";
+  if (search && search.includes("twibon/")) {
+    const match = search.match(/twibon\/([^&?#/]+)/i);
+    if (match && match[1]) {
+      detectedTwibonSlug = decodeURIComponent(match[1]);
+    }
+  }
+
+  if (hash.startsWith("#admin") || pathname.includes("/admin")) {
+    return { tab: "admin", slug: "" };
+  }
+  if (detectedTwibonSlug) {
+    return { tab: "twibon", slug: detectedTwibonSlug };
+  }
+  if (hash.startsWith("#twibon/") || pathname.includes("/twibon/")) {
+    const rawSlug = hash.startsWith("#twibon/")
+      ? hash.replace("#twibon/", "")
+      : pathname.split("/twibon/").pop()?.split("/")[0]?.split("?")[0];
+    const slug = rawSlug ? decodeURIComponent(rawSlug.trim()) : "";
+    return { tab: "twibon", slug };
+  }
+  if (hash === "#twibon" || pathname.endsWith("/twibon") || pathname.endsWith("/twibon/")) {
+    return { tab: "twibon", slug: "" };
+  }
+  if (hash.startsWith("#kegiatan/") || pathname.includes("/kegiatan/")) {
+    const slug = hash.startsWith("#kegiatan/")
+      ? hash.replace("#kegiatan/", "")
+      : pathname.split("/kegiatan/").pop()?.split("/")[0];
+    return { tab: "detail-kegiatan", slug: slug || "" };
+  }
+  if (hash === "#galeri" || pathname.includes("/galeri")) return { tab: "galeri", slug: "" };
+  if (hash === "#foto-terbaru" || pathname.includes("/foto-terbaru")) return { tab: "foto-terbaru", slug: "" };
+  if (hash === "#tentang" || pathname.includes("/tentang")) return { tab: "tentang", slug: "" };
+  return { tab: "beranda", slug: "" };
+}
+
 export default function App() {
+  const initialRoute = getInitialRoute();
+
   // Public data state
   const [activities, setActivities] = useState<Activity[]>((fallbackData.activities || []) as Activity[]);
   const [photos, setPhotos] = useState<Photo[]>((fallbackData.photos || []) as Photo[]);
@@ -26,9 +75,9 @@ export default function App() {
   const [isFetchingData, setIsFetchingData] = useState(true);
 
   // Routing state
-  const [activeTab, setActiveTab] = useState<"beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "detail-kegiatan" | "admin" | "twibon">("beranda");
-  const [activeSlug, setActiveSlug] = useState<string>("");
-  const [prevTab, setPrevTab] = useState<string>("beranda");
+  const [activeTab, setActiveTab] = useState<"beranda" | "galeri" | "kegiatan" | "foto-terbaru" | "tentang" | "detail-kegiatan" | "admin" | "twibon">(initialRoute.tab);
+  const [activeSlug, setActiveSlug] = useState<string>(initialRoute.slug);
+  const [prevTab, setPrevTab] = useState<string>(initialRoute.tab === "detail-kegiatan" ? "kegiatan" : "beranda");
 
   // Search Modal state
   const [isSearchOpen, setIsSearchOpen] = useState(false);
