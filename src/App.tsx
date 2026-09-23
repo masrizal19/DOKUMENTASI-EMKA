@@ -12,7 +12,7 @@ import Lightbox from "./components/Lightbox.js";
 import SearchModal from "./components/SearchModal.js";
 import Notification from "./components/Notification.js";
 import PublicTwibon from "./components/PublicTwibon.tsx";
-import { Calendar, Tag, Shield, Clock, BookOpen, MapPin, Mail, Phone, ExternalLink, Loader2, Sparkles } from "lucide-react";
+import { Calendar, Tag, Clock, BookOpen, MapPin, Mail, Phone, ExternalLink, Loader2, Sparkles } from "lucide-react";
 import { fallbackData } from "./lib/fallbackData.js";
 import { resolveImageUrl } from "./lib/storage.js";
 import { getAdminSession, isAdminAuthenticated, performAdminLogout } from "./lib/adminAuth.js";
@@ -1155,9 +1155,6 @@ export default function App() {
               <button onClick={() => navigateTo("beranda")} className="hover:text-[#eae1d8] transition-colors cursor-pointer">Beranda</button>
               <button onClick={() => navigateTo("galeri")} className="hover:text-[#eae1d8] transition-colors cursor-pointer">Galeri</button>
               <button onClick={() => navigateTo("tentang")} className="hover:text-[#eae1d8] transition-colors cursor-pointer">Tentang</button>
-              <button onClick={() => navigateTo("admin")} className="text-[#f6c374] hover:text-[#eae1d8] transition-colors flex items-center gap-1 cursor-pointer">
-                <Shield className="w-3.5 h-3.5" /> Portal Admin
-              </button>
             </div>
 
             <p className="font-body text-[10px] text-[#4f4538]">
