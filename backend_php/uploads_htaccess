@@ -1,0 +1,19 @@
+# CORS Configuration for Twibon PNG Frames & Media Uploads
+# Place this file in /uploads/ or /uploads/twibon/ on api.mkverse.my.id
+
+<IfModule mod_headers.c>
+    # Set CORS headers for all static images (PNG frames, JPG, WebP)
+    Header set Access-Control-Allow-Origin "https://galerifoto.mkverse.my.id"
+    Header append Access-Control-Allow-Origin "https://galeri.mkverse.my.id"
+    Header append Access-Control-Allow-Origin "https://api.mkverse.my.id"
+    Header set Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+    Header set Access-Control-Allow-Headers "*"
+    Header set Access-Control-Allow-Credentials "true"
+    Header set Access-Control-Max-Age "86400"
+</IfModule>
+
+<FilesMatch "\.(png|jpe?g|gif|webp|svg|ico)$">
+    <IfModule mod_headers.c>
+        Header set Access-Control-Allow-Origin "*"
+    </IfModule>
+</FilesMatch>

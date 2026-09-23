@@ -13,6 +13,20 @@
     RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
 </IfModule>
 
+# Konfigurasi Header CORS untuk file statis / gambar (PNG, JPG, WebP, dll.)
+<IfModule mod_headers.c>
+    SetEnvIf Origin "^(https?://(.*\.)?mkverse\.my\.id(:[0-9]+)?|http://localhost(:[0-9]+)?)$" CORS_ALLOW_ORIGIN=$0
+    <FilesMatch "\.(png|jpe?g|gif|webp|svg|ico|bmp)$">
+        Header set Access-Control-Allow-Origin "https://galerifoto.mkverse.my.id"
+        Header append Access-Control-Allow-Origin "https://galeri.mkverse.my.id"
+        Header append Access-Control-Allow-Origin "https://api.mkverse.my.id"
+        Header set Access-Control-Allow-Methods "GET, OPTIONS"
+        Header set Access-Control-Allow-Headers "*"
+        Header set Access-Control-Allow-Credentials "true"
+        Header set Access-Control-Max-Age "86400"
+    </FilesMatch>
+</IfModule>
+
 <IfModule mod_php.c>
     php_value upload_max_filesize 2G
     php_value post_max_size 2G

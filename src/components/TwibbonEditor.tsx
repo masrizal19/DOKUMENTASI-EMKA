@@ -203,19 +203,39 @@ export default function TwibbonEditor({
       const loadImg = (src: string): Promise<HTMLImageElement> => {
         return new Promise((resolve, reject) => {
           const img = new Image();
+          // Urutan crossOrigin HARUS sebelum src
           img.crossOrigin = "anonymous";
-          img.onload = () => resolve(img);
-          img.onerror = () => {
-            if (src.includes("api.mkverse.my.id/uploads/")) {
-              const retryImg = new Image();
-              retryImg.crossOrigin = "anonymous";
-              retryImg.onload = () => resolve(retryImg);
-              retryImg.onerror = (err) => reject(err);
-              retryImg.src = src.replace("api.mkverse.my.id/uploads/", "api.mkverse.my.id/api/uploads/");
-            } else {
-              reject(new Error(`Failed to load image: ${src}`));
-            }
+
+          img.onload = () => {
+            resolve(img);
           };
+
+          img.onerror = (err) => {
+            console.warn(`[TwibbonEditor] direct loadImg error on ${src}, trying blob fetch fallback...`, err);
+            // Fallback: fetch blob directly to prevent canvas tainting
+            fetch(src, { mode: "cors" })
+              .then((res) => {
+                if (!res.ok) throw new Error(`HTTP Error ${res.status}: Gagal mengunduh gambar frame`);
+                return res.blob();
+              })
+              .then((blob) => {
+                const objectUrl = URL.createObjectURL(blob);
+                const blobImg = new Image();
+                blobImg.onload = () => {
+                  resolve(blobImg);
+                };
+                blobImg.onerror = (blobErr) => {
+                  console.error(`[TwibbonEditor] Blob load failed for ${src}:`, blobErr);
+                  reject(new Error(`Gagal memuat gambar frame: ${src}`));
+                };
+                blobImg.src = objectUrl;
+              })
+              .catch((fetchErr) => {
+                console.error(`[TwibbonEditor] Gagal memuat file gambar frame dari ${src}:`, fetchErr);
+                reject(new Error(`Gagal memuat frame gambar dari: ${src}`));
+              });
+          };
+
           img.src = src;
         });
       };
@@ -256,21 +276,48 @@ export default function TwibbonEditor({
       // Draw PNG transparent frame on top covering the canvas
       ctx.drawImage(frameImg, 0, 0, outW, outH);
 
-      // Convert and download
-      const dataUrl = canvas.toDataURL("image/png", 1.0);
-      const link = document.createElement("a");
-      link.download = `twibon-${slug}.png`;
-      link.href = dataUrl;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      // Export canvas safely
+      if (canvas.toBlob) {
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            onShowToast("Gagal menyusun gambar. Format file tidak sesuai.", "error");
+            setIsProcessing(false);
+            return;
+          }
+          const blobDownloadUrl = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.download = `twibon-${slug}.png`;
+          link.href = blobDownloadUrl;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(blobDownloadUrl), 1000);
 
-      onShowToast("Twibbon berhasil diunduh!", "success");
-      if (onDownloadCompleted) onDownloadCompleted();
-    } catch (error) {
-      console.error("Compile Twibbon Error:", error);
-      onShowToast("Gagal menyusun gambar. Coba ganti foto lain.", "error");
-    } finally {
+          onShowToast("Twibbon berhasil diunduh!", "success");
+          if (onDownloadCompleted) onDownloadCompleted();
+          setIsProcessing(false);
+        }, "image/png", 1.0);
+      } else {
+        const dataUrl = canvas.toDataURL("image/png", 1.0);
+        const link = document.createElement("a");
+        link.download = `twibon-${slug}.png`;
+        link.href = dataUrl;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        onShowToast("Twibbon berhasil diunduh!", "success");
+        if (onDownloadCompleted) onDownloadCompleted();
+        setIsProcessing(false);
+      }
+    } catch (error: any) {
+      console.error("[TwibbonEditor] Compile Twibbon Error:", error);
+      const isSecurity = error?.name === "SecurityError" || String(error?.message || "").includes("Tainted");
+      if (isSecurity) {
+        onShowToast("Gagal menyusun gambar karena masalah izin CORS gambar. Pastikan server mengizinkan akses.", "error");
+      } else {
+        onShowToast(error?.message || "Gagal menyusun gambar. Coba ganti foto lain.", "error");
+      }
       setIsProcessing(false);
     }
   };
@@ -325,14 +372,11 @@ export default function TwibbonEditor({
           {/* FRAME OVERLAY (Z-index 20) */}
           <img
             src={frameUrl}
+            crossOrigin="anonymous"
             alt="Frame Overlay"
             className="absolute inset-0 w-full h-full object-fill pointer-events-none z-20"
-            referrerPolicy="no-referrer"
             onError={(e) => {
-              const target = e.currentTarget;
-              if (target.src.includes("api.mkverse.my.id/uploads/")) {
-                target.src = target.src.replace("api.mkverse.my.id/uploads/", "api.mkverse.my.id/api/uploads/");
-              }
+              console.error("[TwibbonEditor] Gagal menampilkan overlay frame dari URL:", e.currentTarget.src);
             }}
           />
 
