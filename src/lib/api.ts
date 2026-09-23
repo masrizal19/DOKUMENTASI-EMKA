@@ -799,24 +799,40 @@ export async function deleteActivity(id: string | number) {
 }
 
 // ============================================================================
+// ============================================================================
 // TWIBON API CLIENT (MySQL + PHP Backend as Single Source of Truth)
-// Endpoint: https://api.mkverse.my.id/api/twibon.php
+// Direct endpoints:
+//   - GET  twibon-list.php
+//   - GET  twibon-detail.php?id=ID / ?slug=SLUG
+//   - POST twibon-upload.php
+//   - POST twibon-save.php
+//   - POST twibon-update.php
+//   - POST twibon-delete.php
+//   - POST twibon-delete-file.php
+//   - GET  twibon-settings.php
+//   - GET  twibon-health.php
 // ============================================================================
 
 /**
  * Helper to determine best API endpoint URL for Twibon.
- * In local dev/preview containers, uses same-origin /api/twibon.php proxy to avoid browser CORS blocks.
- * In production (galerifoto.mkverse.my.id), connects directly to PHP API.
+ * Routes through same-origin /api proxy in preview/dev, or direct to PHP API.
  */
-export function getTwibonApiUrl(query: string = ""): string {
+export function getTwibonApiUrl(endpoint: string = "twibon-list.php", query: string = ""): string {
   const isPreviewOrLocal =
     typeof window !== "undefined" &&
     window.location.origin &&
     !window.location.origin.includes("galerifoto.mkverse.my.id");
 
   const base = isPreviewOrLocal ? "/api" : API_BASE_URL;
+  const cleanEndpoint = endpoint.startsWith("/") ? endpoint.slice(1) : endpoint;
   const q = query ? (query.startsWith("?") ? query : `?${query}`) : "";
-  return `${base}/twibon.php${q}`;
+  return `${base}/${cleanEndpoint}${q}`;
+}
+
+export function getDirectTwibonApiUrl(endpoint: string = "twibon-list.php", query: string = ""): string {
+  const cleanEndpoint = endpoint.startsWith("/") ? endpoint.slice(1) : endpoint;
+  const q = query ? (query.startsWith("?") ? query : `?${query}`) : "";
+  return `${API_BASE_URL}/${cleanEndpoint}${q}`;
 }
 
 const formatTwibbonItem = (item: any) => ({
@@ -838,15 +854,14 @@ const formatTwibbonItem = (item: any) => ({
 });
 
 /**
- * Fetch all Twibons or published/active-only Twibons
- * Single source of truth: PHP API + MySQL Database (No local storage, no dummy data!)
+ * 1. Fetch all Twibons or published/active-only Twibons
+ * Endpoint: twibon-list.php
+ * Single source of truth: PHP API + MySQL Database
  */
 export async function fetchTwibbons(activeOnly: boolean = false): Promise<{ data: any[] | null; error: Error | null }> {
   const query = activeOnly ? `active=1&_t=${Date.now()}` : `_t=${Date.now()}`;
-  const primaryUrl = getTwibonApiUrl(query);
-  const fallbackUrl = primaryUrl.startsWith("/api")
-    ? `https://api.mkverse.my.id/api/twibon.php?${query}`
-    : `/api/twibon.php?${query}`;
+  const primaryUrl = getTwibonApiUrl("twibon-list.php", query);
+  const directUrl = getDirectTwibonApiUrl("twibon-list.php", query);
 
   const fetchWithUrl = async (targetUrl: string) => {
     const res = await fetch(targetUrl, {
@@ -866,8 +881,7 @@ export async function fetchTwibbons(activeOnly: boolean = false): Promise<{ data
     try {
       json = await fetchWithUrl(primaryUrl);
     } catch {
-      // If primary failed (CORS or network), transparently try fallback
-      json = await fetchWithUrl(fallbackUrl);
+      json = await fetchWithUrl(directUrl);
     }
 
     if (json && (json.success === true || Array.isArray(json.data) || Array.isArray(json))) {
@@ -875,35 +889,32 @@ export async function fetchTwibbons(activeOnly: boolean = false): Promise<{ data
       return { data: rawList.map(formatTwibbonItem), error: null };
     }
 
-    // If empty or non-error response, treat as valid empty list
     return { data: [], error: null };
   } catch (err: any) {
-    // If both failed, try the alternate one last time
+    // Transparent retry
     try {
-      const fbJson = await fetchWithUrl(fallbackUrl);
+      const fbJson = await fetchWithUrl(directUrl);
       if (fbJson && (fbJson.success === true || Array.isArray(fbJson.data))) {
         const rawList = Array.isArray(fbJson.data) ? fbJson.data : [];
         return { data: rawList.map(formatTwibbonItem), error: null };
       }
     } catch {}
 
-    // Never return raw "Failed to fetch" if it's just an empty result
     return { data: [], error: null };
   }
 }
 
 /**
- * Fetch Twibon detail by slug or ID
- * Single source of truth: PHP API + MySQL Database (No local storage, no dummy data!)
+ * 2. Fetch Twibon detail by slug or ID
+ * Endpoint: twibon-detail.php?id=ID / ?slug=SLUG
+ * Single source of truth: PHP API + MySQL Database
  */
 export async function fetchTwibbonDetail(slugOrId: string | number): Promise<{ data: any | null; error: Error | null }> {
   const isId = typeof slugOrId === "number" || (/^\d+$/.test(String(slugOrId)) && !String(slugOrId).includes("-"));
   const param = isId ? `id=${slugOrId}` : `slug=${encodeURIComponent(slugOrId)}`;
   const query = `${param}&_t=${Date.now()}`;
-  const primaryUrl = getTwibonApiUrl(query);
-  const fallbackUrl = primaryUrl.startsWith("/api")
-    ? `https://api.mkverse.my.id/api/twibon.php?${query}`
-    : `/api/twibon.php?${query}`;
+  const primaryUrl = getTwibonApiUrl("twibon-detail.php", query);
+  const directUrl = getDirectTwibonApiUrl("twibon-detail.php", query);
 
   const fetchWithUrl = async (targetUrl: string) => {
     const res = await fetch(targetUrl, {
@@ -923,7 +934,7 @@ export async function fetchTwibbonDetail(slugOrId: string | number): Promise<{ d
     try {
       result = await fetchWithUrl(primaryUrl);
     } catch {
-      result = await fetchWithUrl(fallbackUrl);
+      result = await fetchWithUrl(directUrl);
     }
 
     const { status, json } = result;
@@ -939,7 +950,7 @@ export async function fetchTwibbonDetail(slugOrId: string | number): Promise<{ d
     return { data: null, error: new Error(json?.message || "Twibon tidak ditemukan atau sudah dihapus.") };
   } catch (err: any) {
     try {
-      const { json } = await fetchWithUrl(fallbackUrl);
+      const { json } = await fetchWithUrl(directUrl);
       if (json && json.success === true && json.data) {
         return { data: formatTwibbonItem(json.data), error: null };
       }
@@ -950,7 +961,78 @@ export async function fetchTwibbonDetail(slugOrId: string | number): Promise<{ d
 }
 
 /**
- * Add / Create Twibon in MySQL via PHP Backend (twibon.php)
+ * 3. Upload Twibon Frame PNG file to backend endpoint:
+ * Endpoint: twibon-upload.php
+ * Field: 'file' (FormData)
+ * Content-Type: multipart/form-data boundary automatically set by browser
+ */
+export async function uploadTwibbonFrame(
+  file: File
+): Promise<{ url: string | null; filename?: string; error: string | null }> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const directEndpoint = "https://api.mkverse.my.id/api/twibon-upload.php";
+  const proxyEndpoint = "/api/twibon-upload.php";
+
+  const isPreviewOrLocal =
+    typeof window !== "undefined" &&
+    window.location.origin &&
+    !window.location.origin.includes("galerifoto.mkverse.my.id");
+
+  const primaryUrl = isPreviewOrLocal ? proxyEndpoint : directEndpoint;
+  const secondaryUrl = isPreviewOrLocal ? directEndpoint : proxyEndpoint;
+
+  const doUpload = async (targetUrl: string) => {
+    const res = await fetch(targetUrl, {
+      method: "POST",
+      // CRITICAL: Do NOT set Content-Type header so browser generates multipart boundary automatically
+      body: formData,
+    });
+    const text = await res.text();
+    let json: any;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      throw new Error(`Server mengembalikan response bukan JSON (HTTP ${res.status}): ${text.substring(0, 100)}`);
+    }
+    return json;
+  };
+
+  try {
+    let result: any;
+    try {
+      result = await doUpload(primaryUrl);
+    } catch {
+      result = await doUpload(secondaryUrl);
+    }
+
+    if (result && result.success && result.data) {
+      const serverUrl = result.data.url || result.data.public_url;
+      if (serverUrl) {
+        return {
+          url: serverUrl,
+          filename: result.data.filename,
+          error: null,
+        };
+      }
+    }
+
+    return {
+      url: null,
+      error: result?.message || "Gagal mengunggah frame Twibon ke server.",
+    };
+  } catch (err: any) {
+    return {
+      url: null,
+      error: err?.message || "Gagal menghubungi endpoint twibon-upload.php",
+    };
+  }
+}
+
+/**
+ * 4. Add / Create Twibon in MySQL via PHP Backend
+ * Endpoint: twibon-save.php
  */
 export async function addTwibbon(data: {
   title: string;
@@ -958,44 +1040,37 @@ export async function addTwibbon(data: {
   description?: string;
   ratio?: "1:1" | "4:3" | "16:9" | "9:16";
   design_url?: string;
+  frame_filename?: string;
+  filename?: string;
   is_active?: boolean | number;
   file?: File;
 }): Promise<{ data: any | null; error: Error | null }> {
-  let isFormData = false;
-  let body: any;
+  const frameUrl = data.design_url || "";
+  const frameFilename =
+    data.frame_filename ||
+    data.filename ||
+    (frameUrl ? frameUrl.split("/").pop() : "") ||
+    "";
 
-  if (data.file) {
-    isFormData = true;
-    const formData = new FormData();
-    formData.append("title", data.title);
-    if (data.slug) formData.append("slug", data.slug);
-    if (data.description) formData.append("description", data.description);
-    if (data.ratio) formData.append("ratio", data.ratio);
-    formData.append("is_active", data.is_active ? "1" : "0");
-    formData.append("file", data.file);
-    body = formData;
-  } else {
-    body = {
-      title: data.title,
-      slug: data.slug,
-      description: data.description || "",
-      ratio: data.ratio || "1:1",
-      frame_url: data.design_url || "",
-      design_url: data.design_url || "",
-      is_active: data.is_active === 0 || data.is_active === false ? 0 : 1,
-    };
-  }
+  const body = {
+    title: data.title.trim(),
+    slug: data.slug?.trim() || data.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, ""),
+    description: data.description?.trim() || "",
+    ratio: data.ratio || "1:1",
+    frame_filename: frameFilename,
+    frame_url: frameUrl,
+    design_url: frameUrl,
+    is_active: data.is_active === 0 || data.is_active === false ? 0 : 1,
+  };
 
-  const primaryUrl = getTwibonApiUrl();
-  const fallbackUrl = primaryUrl.startsWith("/api")
-    ? "https://api.mkverse.my.id/api/twibon.php"
-    : "/api/twibon.php";
+  const primaryUrl = getTwibonApiUrl("twibon-save.php");
+  const directUrl = getDirectTwibonApiUrl("twibon-save.php");
 
   const executePost = async (targetUrl: string) => {
     const res = await fetch(targetUrl, {
       method: "POST",
-      headers: isFormData ? {} : { "Content-Type": "application/json" },
-      body: isFormData ? body : JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     });
     const text = await res.text();
     return JSON.parse(text);
@@ -1006,7 +1081,7 @@ export async function addTwibbon(data: {
     try {
       json = await executePost(primaryUrl);
     } catch {
-      json = await executePost(fallbackUrl);
+      json = await executePost(directUrl);
     }
 
     if (json && json.success) {
@@ -1019,7 +1094,8 @@ export async function addTwibbon(data: {
 }
 
 /**
- * Update Twibon in MySQL via PHP Backend (twibon.php action=update)
+ * 5. Update Twibon in MySQL via PHP Backend
+ * Endpoint: twibon-update.php
  */
 export async function updateTwibbon(data: {
   id: string | number;
@@ -1028,48 +1104,44 @@ export async function updateTwibbon(data: {
   description?: string;
   ratio?: "1:1" | "4:3" | "16:9" | "9:16";
   design_url?: string;
+  frame_filename?: string;
+  filename?: string;
   is_active?: boolean | number;
   file?: File;
 }): Promise<{ data: any | null; error: Error | null }> {
-  let isFormData = false;
-  let body: any;
+  const frameUrl = data.design_url;
+  const frameFilename =
+    data.frame_filename ||
+    data.filename ||
+    (frameUrl ? frameUrl.split("/").pop() : undefined);
 
-  if (data.file) {
-    isFormData = true;
-    const formData = new FormData();
-    formData.append("action", "update");
-    formData.append("id", String(data.id));
-    if (data.title) formData.append("title", data.title);
-    if (data.slug) formData.append("slug", data.slug);
-    if (data.description !== undefined) formData.append("description", data.description);
-    if (data.ratio) formData.append("ratio", data.ratio);
-    if (data.is_active !== undefined) formData.append("is_active", data.is_active ? "1" : "0");
-    formData.append("file", data.file);
-    body = formData;
-  } else {
-    body = {
-      action: "update",
-      id: Number(data.id),
-      title: data.title,
-      slug: data.slug,
-      description: data.description,
-      ratio: data.ratio,
-      frame_url: data.design_url,
-      design_url: data.design_url,
-      is_active: data.is_active !== undefined ? (data.is_active ? 1 : 0) : undefined,
-    };
+  const body: Record<string, any> = {
+    id: Number(data.id),
+  };
+
+  if (data.title !== undefined) body.title = data.title.trim();
+  if (data.slug !== undefined) body.slug = data.slug.trim();
+  if (data.description !== undefined) body.description = data.description.trim();
+  if (data.ratio !== undefined) body.ratio = data.ratio;
+  if (frameUrl !== undefined) {
+    body.frame_url = frameUrl;
+    body.design_url = frameUrl;
+  }
+  if (frameFilename !== undefined) {
+    body.frame_filename = frameFilename;
+  }
+  if (data.is_active !== undefined) {
+    body.is_active = data.is_active ? 1 : 0;
   }
 
-  const primaryUrl = getTwibonApiUrl();
-  const fallbackUrl = primaryUrl.startsWith("/api")
-    ? "https://api.mkverse.my.id/api/twibon.php"
-    : "/api/twibon.php";
+  const primaryUrl = getTwibonApiUrl("twibon-update.php");
+  const directUrl = getDirectTwibonApiUrl("twibon-update.php");
 
   const executePost = async (targetUrl: string) => {
     const res = await fetch(targetUrl, {
       method: "POST",
-      headers: isFormData ? {} : { "Content-Type": "application/json" },
-      body: isFormData ? body : JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     });
     const text = await res.text();
     return JSON.parse(text);
@@ -1080,7 +1152,7 @@ export async function updateTwibbon(data: {
     try {
       json = await executePost(primaryUrl);
     } catch {
-      json = await executePost(fallbackUrl);
+      json = await executePost(directUrl);
     }
 
     if (json && json.success) {
@@ -1093,16 +1165,14 @@ export async function updateTwibbon(data: {
 }
 
 /**
- * Delete Twibon from MySQL and server disk via PHP Backend (twibon.php action=delete)
- * Single Source of Truth
+ * 6. Delete Twibon from MySQL via PHP Backend
+ * Endpoint: twibon-delete.php
  */
 export async function deleteTwibbon(id: string | number): Promise<{ data: any | null; error: Error | null }> {
   const numericId = Number(id);
-  const body = { action: "delete", id: numericId };
-  const primaryUrl = getTwibonApiUrl();
-  const fallbackUrl = primaryUrl.startsWith("/api")
-    ? "https://api.mkverse.my.id/api/twibon.php"
-    : "/api/twibon.php";
+  const body = { id: numericId };
+  const primaryUrl = getTwibonApiUrl("twibon-delete.php");
+  const directUrl = getDirectTwibonApiUrl("twibon-delete.php");
 
   const executePost = async (targetUrl: string) => {
     const res = await fetch(targetUrl, {
@@ -1119,7 +1189,7 @@ export async function deleteTwibbon(id: string | number): Promise<{ data: any | 
     try {
       json = await executePost(primaryUrl);
     } catch {
-      json = await executePost(fallbackUrl);
+      json = await executePost(directUrl);
     }
 
     if (json && json.success) {
@@ -1132,20 +1202,67 @@ export async function deleteTwibbon(id: string | number): Promise<{ data: any | 
 }
 
 /**
- * Increment use/download count for a Twibon in MySQL (twibon.php action=increment_use)
+ * 7. Delete Twibon Frame file on disk via PHP Backend
+ * Endpoint: twibon-delete-file.php
+ */
+export async function deleteTwibbonFile(filename: string): Promise<{ data: any | null; error: Error | null }> {
+  if (!filename) return { data: null, error: null };
+  const body = { filename };
+  const primaryUrl = getTwibonApiUrl("twibon-delete-file.php");
+  const directUrl = getDirectTwibonApiUrl("twibon-delete-file.php");
+
+  try {
+    const res = await fetch(primaryUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).catch(() =>
+      fetch(directUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    );
+    const json = await res.json();
+    return { data: json.data, error: null };
+  } catch (err: any) {
+    return { data: null, error: null }; // Non-blocking
+  }
+}
+
+/**
+ * 8. Increment use/download count for a Twibon in MySQL
+ * Endpoint: twibon-update.php or twibon.php (action=increment_use)
  */
 export async function incrementTwibbonUse(id: string | number): Promise<void> {
   const numericId = Number(id);
-  const body = { action: "increment_use", id: numericId };
-  const primaryUrl = getTwibonApiUrl();
+  const primaryUrl = getTwibonApiUrl("twibon.php");
   try {
     await fetch(primaryUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ action: "increment_use", id: numericId }),
     });
   } catch {
     // Non-blocking statistic increment
+  }
+}
+
+/**
+ * 9. Fetch Twibon Settings
+ * Endpoint: twibon-settings.php
+ */
+export async function fetchTwibbonSettings(): Promise<{ data: any | null; error: Error | null }> {
+  const primaryUrl = getTwibonApiUrl("twibon-settings.php");
+  try {
+    const res = await fetch(primaryUrl, {
+      method: "GET",
+      cache: "no-store",
+    });
+    const json = await res.json();
+    return { data: json.data || json, error: null };
+  } catch (err: any) {
+    return { data: null, error: err };
   }
 }
 

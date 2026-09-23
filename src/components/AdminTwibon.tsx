@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Plus, Search, Trash2, Edit2, Eye, ShieldAlert, ToggleLeft, ToggleRight, Upload, Sparkles, AlertCircle, X, Check, HelpCircle, Loader2 } from "lucide-react";
 import { Twibbon } from "../types";
 import { checkPngTransparency, generateMockFrame, clearLegacyTwibbonCache } from "../lib/twibbonUtils";
-import { fetchTwibbons, addTwibbon, updateTwibbon, deleteTwibbon, incrementTwibbonUse } from "../lib/api";
+import { fetchTwibbons, addTwibbon, updateTwibbon, deleteTwibbon, incrementTwibbonUse, uploadTwibbonFrame, deleteTwibbonFile } from "../lib/api";
 import TwibbonEditor from "./TwibbonEditor";
 
 interface AdminTwibonProps {
@@ -14,6 +14,7 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   
   // Modal states
@@ -81,7 +82,7 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
     }));
   };
 
-  // Handle transparent file upload
+  // Handle transparent file upload to https://api.mkverse.my.id/api/twibon-upload.php
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -93,29 +94,50 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
       return;
     }
 
+    // 1. Simpan File object asli dari input[type=file]
     setSelectedFile(file);
     setUploadedFileName(file.name);
-    setIsCheckingTransparency(true);
+    setIsUploading(true);
     setTransparencyWarn(false);
 
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const dataUrl = event.target?.result as string;
-      
-      // Perform automated transparency checks
-      const isTransparent = await checkPngTransparency(dataUrl);
+    try {
+      // 3, 4, 5. Kirim file menggunakan FormData dengan field 'file' ke twibon-upload.php
+      onShowToast("Mengunggah frame ke server (twibon-upload.php)...", "success");
+      const uploadRes = await uploadTwibbonFrame(file);
+
+      if (uploadRes.error || !uploadRes.url) {
+        // 10. Jika upload gagal, tampilkan pesan error dari response PHP
+        onShowToast(uploadRes.error || "Gagal mengunggah frame Twibon ke server.", "error");
+        setIsUploading(false);
+        return;
+      }
+
+      // 6, 7, 8, 9. Ambil response data.url atau data.public_url dan gunakan sebagai source preview frame (bukan Base64)
+      const uploadedServerUrl = uploadRes.url;
+      if (uploadRes.filename) {
+        setUploadedFileName(uploadRes.filename);
+      }
+      setFormData((prev) => ({ ...prev, designUrl: uploadedServerUrl }));
+      onShowToast("Frame berhasil diunggah ke server!", "success");
+
+      // Periksa transparansi secara lokal untuk peringatan pengguna
+      setIsCheckingTransparency(true);
+      const tempUrl = URL.createObjectURL(file);
+      const isTransparent = await checkPngTransparency(tempUrl);
+      URL.revokeObjectURL(tempUrl);
       setIsCheckingTransparency(false);
-      
+
       if (!isTransparent) {
         setTransparencyWarn(true);
         onShowToast("Peringatan: Gambar PNG tidak memiliki area transparan!", "error");
       } else {
-        onShowToast("Frame PNG transparan terverifikasi dengan sukses.", "success");
+        onShowToast("Frame PNG transparan terverifikasi.", "success");
       }
-
-      setFormData((prev) => ({ ...prev, designUrl: dataUrl }));
-    };
-    reader.readAsDataURL(file);
+    } catch (err: any) {
+      onShowToast(err?.message || "Terjadi kesalahan saat mengunggah frame.", "error");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   // Toggle active campaign
@@ -150,6 +172,7 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
     setEditingTwibbon(null);
     setSelectedFile(null);
     setUploadedFileName("");
+    setIsUploading(false);
     setTransparencyWarn(false);
     setIsCheckingTransparency(false);
     setFormData({
@@ -168,6 +191,7 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
     setEditingTwibbon(twibbon);
     setSelectedFile(null);
     setUploadedFileName(twibbon.designUrl ? "frame_existing.png" : "");
+    setIsUploading(false);
     setTransparencyWarn(false);
     setIsCheckingTransparency(false);
     setFormData({
@@ -184,6 +208,11 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
   // Submit form (Save / Update)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isUploading) {
+      onShowToast("Mohon tunggu proses upload frame ke server selesai...", "error");
+      return;
+    }
 
     if (!formData.title.trim()) {
       onShowToast("Judul kampanye tidak boleh kosong.", "error");
@@ -220,6 +249,7 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
         description: formData.description.trim(),
         ratio: formData.ratio,
         design_url: finalDesignUrl,
+        filename: uploadedFileName || (finalDesignUrl ? finalDesignUrl.split("/").pop() : undefined),
         is_active: formData.isActive ? 1 : 0,
         file: selectedFile || undefined
       });
@@ -240,6 +270,7 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
         description: formData.description.trim(),
         ratio: formData.ratio,
         design_url: finalDesignUrl,
+        filename: uploadedFileName || (finalDesignUrl ? finalDesignUrl.split("/").pop() : undefined),
         is_active: formData.isActive ? 1 : 0,
         file: selectedFile || undefined
       });
@@ -270,6 +301,15 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
     setIsDeleting(true);
 
     const res = await deleteTwibbon(twibbonToDelete.id);
+    
+    // Also delete frame file from server if it has a file
+    if (twibbonToDelete.designUrl) {
+      const fn = twibbonToDelete.designUrl.split("/").pop();
+      if (fn && !fn.startsWith("data:")) {
+        await deleteTwibbonFile(fn);
+      }
+    }
+
     setIsDeleting(false);
 
     if (res.error) {
@@ -377,6 +417,12 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
                     alt={twibbon.title}
                     className="max-w-full max-h-full object-contain relative z-10"
                     referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      if (target.src.includes("api.mkverse.my.id/uploads/")) {
+                        target.src = target.src.replace("api.mkverse.my.id/uploads/", "api.mkverse.my.id/api/uploads/");
+                      }
+                    }}
                   />
                   <span className="absolute top-3 left-3 bg-[#110e09]/90 border border-[#4f4538]/30 font-subheading text-[9px] tracking-widest text-[#f6c374] px-2.5 py-1 rounded-sm uppercase">
                     Rasio {twibbon.ratio}
@@ -562,7 +608,7 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
                       {uploadedFileName || "Pilih File PNG Transparan"}
                     </p>
                     <p className="font-body text-[10px] text-[#4f4538]">
-                      Format PNG maksimal 5MB. Kosongkan untuk menggunakan template otomatis.
+                      Format PNG maksimal 5MB. Frame langsung dikirim ke server.
                     </p>
                   </div>
 
@@ -572,14 +618,62 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
                     onChange={handleFileUpload}
                     className="hidden"
                     id="twibbon-frame-input"
+                    disabled={isUploading}
                   />
                   <label
                     htmlFor="twibbon-frame-input"
-                    className="bg-[#17130e] hover:bg-[#39342e]/30 text-[#eae1d8] border border-[#4f4538]/30 font-subheading text-[9px] tracking-widest uppercase py-2 px-4 rounded-sm transition-all cursor-pointer font-bold inline-block"
+                    className={`bg-[#17130e] hover:bg-[#39342e]/30 text-[#eae1d8] border border-[#4f4538]/30 font-subheading text-[9px] tracking-widest uppercase py-2 px-4 rounded-sm transition-all font-bold inline-block ${
+                      isUploading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+                    }`}
                   >
-                    PILIH FILE FRAME
+                    {isUploading ? "MENGUNGGAH..." : "PILIH FILE FRAME"}
                   </label>
                 </div>
+
+                {/* Uploading progress indicator */}
+                {isUploading && (
+                  <div className="flex items-center justify-center gap-2 p-3 bg-[#110e09] border border-[#f6c374]/30 rounded-sm text-[#f6c374] text-xs font-subheading">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Mengunggah frame ke server (twibon-upload.php)...</span>
+                  </div>
+                )}
+
+                {/* Server Frame Preview (Requirement 7 & 9) */}
+                {formData.designUrl && !isUploading && (
+                  <div className="p-3 bg-[#110e09] border border-[#4f4538]/20 rounded-sm flex items-center gap-3">
+                    <div
+                      className="w-14 h-14 shrink-0 rounded-sm border border-[#4f4538]/30 overflow-hidden relative flex items-center justify-center bg-[#17130e]"
+                      style={{
+                        backgroundImage:
+                          "linear-gradient(45deg, #1f1a12 25%, transparent 25%), linear-gradient(-45deg, #1f1a12 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #1f1a12 75%), linear-gradient(-45deg, transparent 75%, #1f1a12 75%)",
+                        backgroundSize: "10px 10px",
+                        backgroundPosition: "0 0, 0 5px, 5px -5px, -5px 0px",
+                      }}
+                    >
+                      <img
+                        src={formData.designUrl}
+                        alt="Preview Frame"
+                        className="max-w-full max-h-full object-contain relative z-10"
+                        crossOrigin="anonymous"
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          if (target.src.includes("api.mkverse.my.id/uploads/")) {
+                            target.src = target.src.replace("api.mkverse.my.id/uploads/", "api.mkverse.my.id/api/uploads/");
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 text-emerald-400 font-subheading text-[10px] uppercase font-bold">
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Frame Tersimpan di Server</span>
+                      </div>
+                      <p className="font-mono text-[9px] text-[#9b8f7f] truncate mt-0.5" title={formData.designUrl}>
+                        {formData.designUrl}
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Transparency Validation Warnings */}
                 {isCheckingTransparency && (
@@ -603,15 +697,27 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
                 <button
                   type="button"
                   onClick={() => setIsFormOpen(false)}
-                  className="flex-1 bg-[#110e09] border border-[#4f4538]/25 hover:bg-[#17130e] text-[#d3c4b3] font-subheading text-xs tracking-widest uppercase py-3 rounded-sm font-semibold transition-all"
+                  disabled={isSubmitting || isUploading}
+                  className="flex-1 bg-[#110e09] border border-[#4f4538]/25 hover:bg-[#17130e] text-[#d3c4b3] font-subheading text-xs tracking-widest uppercase py-3 rounded-sm font-semibold transition-all disabled:opacity-50"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 bg-[#d8a85c] hover:bg-[#f6c374] text-[#110e09] font-subheading text-xs tracking-widest uppercase py-3 rounded-sm font-bold transition-all shadow-md"
+                  disabled={isSubmitting || isUploading}
+                  className="flex-1 bg-[#d8a85c] hover:bg-[#f6c374] disabled:opacity-50 text-[#110e09] font-subheading text-xs tracking-widest uppercase py-3 rounded-sm font-bold transition-all shadow-md flex items-center justify-center gap-2"
                 >
-                  SIMPAN KAMPANYE
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> MENYIMPAN...
+                    </>
+                  ) : isUploading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> MENGUNGGAH...
+                    </>
+                  ) : (
+                    "SIMPAN KAMPANYE"
+                  )}
                 </button>
               </div>
             </form>

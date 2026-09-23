@@ -205,7 +205,17 @@ export default function TwibbonEditor({
           const img = new Image();
           img.crossOrigin = "anonymous";
           img.onload = () => resolve(img);
-          img.onerror = (err) => reject(err);
+          img.onerror = () => {
+            if (src.includes("api.mkverse.my.id/uploads/")) {
+              const retryImg = new Image();
+              retryImg.crossOrigin = "anonymous";
+              retryImg.onload = () => resolve(retryImg);
+              retryImg.onerror = (err) => reject(err);
+              retryImg.src = src.replace("api.mkverse.my.id/uploads/", "api.mkverse.my.id/api/uploads/");
+            } else {
+              reject(new Error(`Failed to load image: ${src}`));
+            }
+          };
           img.src = src;
         });
       };
@@ -318,6 +328,12 @@ export default function TwibbonEditor({
             alt="Frame Overlay"
             className="absolute inset-0 w-full h-full object-fill pointer-events-none z-20"
             referrerPolicy="no-referrer"
+            onError={(e) => {
+              const target = e.currentTarget;
+              if (target.src.includes("api.mkverse.my.id/uploads/")) {
+                target.src = target.src.replace("api.mkverse.my.id/uploads/", "api.mkverse.my.id/api/uploads/");
+              }
+            }}
           />
 
           {/* INITIAL CHOOSE PHOTO WATERMARK (Z-index 30) */}

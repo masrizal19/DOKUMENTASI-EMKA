@@ -321,6 +321,12 @@ export default function PublicTwibon({
                     alt={twibbon.title}
                     className="max-w-full max-h-full object-contain relative z-10 group-hover:scale-105 transition-transform duration-500"
                     referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      if (target.src.includes("api.mkverse.my.id/uploads/")) {
+                        target.src = target.src.replace("api.mkverse.my.id/uploads/", "api.mkverse.my.id/api/uploads/");
+                      }
+                    }}
                   />
                   
                   {/* Ratio pill info */}
