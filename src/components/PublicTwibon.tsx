@@ -291,7 +291,9 @@ export default function PublicTwibon({
             <HelpCircle className="w-6 h-6" />
           </div>
           <p className="font-body text-xs text-[#9b8f7f] max-w-sm leading-relaxed">
-            Maaf, tidak ada kampanye Twibbon aktif yang cocok dengan pencarian Anda saat ini.
+            {searchQuery
+              ? "Maaf, tidak ada kampanye Twibon aktif yang cocok dengan pencarian Anda saat ini."
+              : "Belum ada kampanye Twibon aktif yang tersedia saat ini."}
           </p>
         </div>
       ) : (

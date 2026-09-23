@@ -434,42 +434,5 @@
       "created_at": "2026-09-23T06:58:27.385Z"
     }
   ],
-  "twibons": [
-    {
-      "id": 1,
-      "title": "MPLS SMK MULTI KARYA 2026",
-      "slug": "mpls-2026",
-      "description": "Gunakan Twibbon resmi untuk menyambut Masa Pengenalan Lingkungan Sekolah (MPLS) SMK Multi Karya Medan tahun pelajaran 2026/2027.",
-      "ratio": "1:1",
-      "design_url": "",
-      "is_active": 1,
-      "use_count": 142,
-      "created_at": "2026-07-10 08:00:00",
-      "updated_at": "2026-07-10 08:00:00"
-    },
-    {
-      "id": 2,
-      "title": "MILAD SMK MULTI KARYA",
-      "slug": "milad-smk-2026",
-      "description": "Mari meriahkan perayaan Milad ke-45 SMK Multi Karya Medan dengan menggunakan Twibbon resmi kebanggaan kita.",
-      "ratio": "4:3",
-      "design_url": "",
-      "is_active": 1,
-      "use_count": 88,
-      "created_at": "2026-08-15 09:30:00",
-      "updated_at": "2026-08-15 09:30:00"
-    },
-    {
-      "id": 3,
-      "title": "PORSENIK EMKA 2026",
-      "slug": "porsenik-2026",
-      "description": "Tunjukkan semangat sportivitas dan kreativitasmu dalam Pekan Olahraga dan Seni (Porsenik) SMK Multi Karya Medan tahun 2026.",
-      "ratio": "9:16",
-      "design_url": "",
-      "is_active": 1,
-      "use_count": 205,
-      "created_at": "2026-09-01 10:15:00",
-      "updated_at": "2026-09-01 10:15:00"
-    }
-  ]
+  "twibons": []
 }

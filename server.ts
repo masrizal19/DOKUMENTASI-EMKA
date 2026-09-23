@@ -913,7 +913,8 @@ app.post("/api/save-settings.php", async (req, res) => {
 });
 
 // ============================================================================
-// TWIBON API ROUTES (MySQL Proxy + Fallback Store with Cache Prevention)
+// TWIBON API ROUTES (Direct Transparent Proxy to PHP MySQL Backend twibon.php)
+// Single Source of Truth: https://api.mkverse.my.id/api/twibon.php
 // ============================================================================
 
 // Set Cache Prevention Headers helper
@@ -923,11 +924,11 @@ function setNoCacheHeaders(res: express.Response) {
   res.setHeader("Expires", "0");
 }
 
-// GET Twibons / Twibon Detail
-app.get(["/api/twibons.php", "/api/twibon.php"], async (req, res) => {
+// GET Twibons / Twibon Detail -> strictly to remote twibon.php
+app.get(["/api/twibon.php", "/api/twibons.php"], async (req, res) => {
   setNoCacheHeaders(res);
   const queryStr = new URLSearchParams(req.query as any).toString();
-  const remoteUrl = `https://api.mkverse.my.id/api/twibons.php${queryStr ? `?${queryStr}` : ""}`;
+  const remoteUrl = `https://api.mkverse.my.id/api/twibon.php${queryStr ? `?${queryStr}` : ""}`;
 
   try {
     const remoteRes = await fetch(remoteUrl, {
@@ -939,248 +940,39 @@ app.get(["/api/twibons.php", "/api/twibon.php"], async (req, res) => {
       }
     });
 
-    if (remoteRes.status === 404) {
-      return res.status(404).json({ success: false, message: "Twibon tidak ditemukan atau sudah dihapus." });
-    }
-
-    if (remoteRes.ok) {
-      const json = await remoteRes.json();
-      return res.status(remoteRes.status).json(json);
-    }
-  } catch (err) {
-    // Remote server down or unreachable, proceed to local DB fallback
-  }
-
-  // Fallback to local DB
-  try {
-    const db: any = readDB();
-    const twibons: any[] = db.twibons || [];
-
-    if (req.query.slug) {
-      const targetSlug = String(req.query.slug);
-      const found = twibons.find((t) => t.slug === targetSlug);
-      if (!found) {
-        return res.status(404).json({ success: false, message: "Twibon tidak ditemukan atau sudah dihapus." });
-      }
-      return res.json({ success: true, message: "Data Twibon berhasil diambil.", data: found });
-    }
-
-    if (req.query.id) {
-      const targetId = String(req.query.id);
-      const found = twibons.find((t) => String(t.id) === targetId);
-      if (!found) {
-        return res.status(404).json({ success: false, message: "Twibon tidak ditemukan atau sudah dihapus." });
-      }
-      return res.json({ success: true, message: "Data Twibon berhasil diambil.", data: found });
-    }
-
-    if (req.query.active === "1") {
-      const activeList = twibons.filter((t) => t.is_active === 1 || t.isActive === true);
-      return res.json({ success: true, message: "Data Twibon berhasil diambil.", count: activeList.length, data: activeList });
-    }
-
-    return res.json({ success: true, message: "Data Twibon berhasil diambil.", count: twibons.length, data: twibons });
+    const data = await remoteRes.json();
+    return res.status(remoteRes.status).json(data);
   } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(502).json({
+      success: false,
+      message: `Gagal terhubung ke server API PHP: ${err.message}`,
+      data: []
+    });
   }
 });
 
-// ADD / POST Twibon
-app.post(["/api/add-twibon.php", "/api/twibons.php"], async (req, res) => {
+// POST Twibon (Create, Update, Delete, Increment) -> strictly to remote twibon.php
+app.post(["/api/twibon.php", "/api/twibons.php", "/api/add-twibon.php", "/api/update-twibon.php", "/api/delete-twibon.php"], async (req, res) => {
   setNoCacheHeaders(res);
-  const action = req.body.action || (req.headers["x-http-method-override"] === "DELETE" ? "delete" : "");
+  const remoteUrl = "https://api.mkverse.my.id/api/twibon.php";
 
-  // Handle action=delete
-  if (action === "delete") {
-    const idToDelete = req.body.id;
-    try {
-      const remoteRes = await fetch("https://api.mkverse.my.id/api/delete-twibon.php", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: idToDelete })
-      });
-      if (remoteRes.ok) {
-        const json = await remoteRes.json();
-        return res.json(json);
-      }
-    } catch {}
-
-    const db: any = readDB();
-    db.twibons = (db.twibons || []).filter((t: any) => String(t.id) !== String(idToDelete));
-    writeDB(db);
-    return res.json({ success: true, message: "Twibon berhasil dihapus.", data: { id: idToDelete, database_deleted: true } });
-  }
-
-  // Handle action=increment_use
-  if (action === "increment_use") {
-    const targetId = req.body.id;
-    try {
-      await fetch("https://api.mkverse.my.id/api/twibons.php", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: targetId, action: "increment_use" })
-      });
-    } catch {}
-
-    const db: any = readDB();
-    if (db.twibons) {
-      db.twibons = db.twibons.map((t: any) =>
-        String(t.id) === String(targetId) ? { ...t, use_count: (t.use_count || 0) + 1 } : t
-      );
-      writeDB(db);
-    }
-    return res.json({ success: true, message: "Statistik penggunaan berhasil diperbarui." });
-  }
-
-  // Handle action=update
-  if (action === "update") {
-    const updateId = req.body.id;
-    try {
-      const remoteRes = await fetch("https://api.mkverse.my.id/api/update-twibon.php", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req.body)
-      });
-      if (remoteRes.ok) {
-        const json = await remoteRes.json();
-        return res.json(json);
-      }
-    } catch {}
-
-    const db: any = readDB();
-    let updatedItem: any = null;
-    db.twibons = (db.twibons || []).map((t: any) => {
-      if (String(t.id) === String(updateId)) {
-        updatedItem = {
-          ...t,
-          title: req.body.title !== undefined ? req.body.title : t.title,
-          slug: req.body.slug !== undefined ? req.body.slug : t.slug,
-          description: req.body.description !== undefined ? req.body.description : t.description,
-          ratio: req.body.ratio !== undefined ? req.body.ratio : t.ratio,
-          design_url: req.body.design_url !== undefined ? req.body.design_url : t.design_url,
-          is_active: req.body.is_active !== undefined ? (req.body.is_active ? 1 : 0) : t.is_active,
-          updated_at: new Date().toISOString()
-        };
-        return updatedItem;
-      }
-      return t;
-    });
-    writeDB(db);
-    return res.json({ success: true, message: "Kampanye Twibon berhasil diperbarui.", data: updatedItem });
-  }
-
-  // Create new Twibon
   try {
-    const remoteRes = await fetch("https://api.mkverse.my.id/api/add-twibon.php", {
+    const remoteRes = await fetch(remoteUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json"
+      },
       body: JSON.stringify(req.body)
     });
-    if (remoteRes.ok) {
-      const json = await remoteRes.json();
-      return res.json(json);
-    }
-  } catch {}
 
-  // Local fallback creation
-  try {
-    const db: any = readDB();
-    if (!db.twibons) db.twibons = [];
-
-    const newId = Date.now();
-    const newTwibon = {
-      id: newId,
-      title: req.body.title || "",
-      slug: req.body.slug || `twibon-${newId}`,
-      description: req.body.description || "",
-      ratio: req.body.ratio || "1:1",
-      design_url: req.body.design_url || "",
-      is_active: req.body.is_active !== undefined ? (req.body.is_active ? 1 : 0) : 1,
-      use_count: 0,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
-
-    db.twibons.unshift(newTwibon);
-    writeDB(db);
-    return res.status(201).json({ success: true, message: "Kampanye Twibon berhasil ditambahkan.", data: newTwibon });
+    const data = await remoteRes.json();
+    return res.status(remoteRes.status).json(data);
   } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// UPDATE Twibon
-app.post("/api/update-twibon.php", async (req, res) => {
-  setNoCacheHeaders(res);
-  try {
-    const remoteRes = await fetch("https://api.mkverse.my.id/api/update-twibon.php", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(req.body)
+    return res.status(502).json({
+      success: false,
+      message: `Gagal mengirim request ke server API PHP: ${err.message}`,
+      data: null
     });
-    if (remoteRes.ok) {
-      const json = await remoteRes.json();
-      return res.json(json);
-    }
-  } catch {}
-
-  try {
-    const db: any = readDB();
-    const updateId = req.body.id;
-    let updatedItem: any = null;
-
-    db.twibons = (db.twibons || []).map((t: any) => {
-      if (String(t.id) === String(updateId)) {
-        updatedItem = {
-          ...t,
-          title: req.body.title !== undefined ? req.body.title : t.title,
-          slug: req.body.slug !== undefined ? req.body.slug : t.slug,
-          description: req.body.description !== undefined ? req.body.description : t.description,
-          ratio: req.body.ratio !== undefined ? req.body.ratio : t.ratio,
-          design_url: req.body.design_url !== undefined ? req.body.design_url : t.design_url,
-          is_active: req.body.is_active !== undefined ? (req.body.is_active ? 1 : 0) : t.is_active,
-          updated_at: new Date().toISOString()
-        };
-        return updatedItem;
-      }
-      return t;
-    });
-
-    writeDB(db);
-    return res.json({ success: true, message: "Kampanye Twibon berhasil diperbarui.", data: updatedItem });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// DELETE Twibon
-app.all(["/api/delete-twibon.php"], async (req, res) => {
-  setNoCacheHeaders(res);
-  const idToDelete = req.body?.id || req.query?.id;
-
-  if (!idToDelete) {
-    return res.status(400).json({ success: false, message: "Parameter ID Twibon wajib disertakan." });
-  }
-
-  try {
-    const remoteRes = await fetch("https://api.mkverse.my.id/api/delete-twibon.php", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: idToDelete })
-    });
-    if (remoteRes.ok) {
-      const json = await remoteRes.json();
-      return res.json(json);
-    }
-  } catch {}
-
-  try {
-    const db: any = readDB();
-    db.twibons = (db.twibons || []).filter((t: any) => String(t.id) !== String(idToDelete));
-    writeDB(db);
-    return res.json({ success: true, message: "Twibon berhasil dihapus dari database.", data: { id: idToDelete, database_deleted: true } });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
   }
 });
 

@@ -310,7 +310,7 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
             Daftar Twibon
           </h2>
           <p className="font-body text-xs text-[#9b8f7f]">
-            Kelola frame kampanye promosi sekolah secara real-time menggunakan penyimpanan lokal.
+            Kelola frame kampanye promosi sekolah secara real-time tersinkronisasi langsung dengan database.
           </p>
         </div>
 
@@ -346,7 +346,9 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
             <HelpCircle className="w-6 h-6" />
           </div>
           <p className="font-body text-xs text-[#9b8f7f] max-w-sm leading-relaxed">
-            Tidak ada kampanye Twibbon yang cocok dengan pencarian Anda atau belum ada kampanye yang ditambahkan.
+            {searchQuery
+              ? "Tidak ada kampanye Twibon yang cocok dengan pencarian Anda."
+              : "Belum ada kampanye Twibon di database. Klik tombol 'TAMBAH KAMPANYE' untuk menambahkan frame baru."}
           </p>
         </div>
       ) : (
