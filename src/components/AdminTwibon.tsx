@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Search, Trash2, Edit2, Eye, ShieldAlert, ToggleLeft, ToggleRight, Upload, Sparkles, AlertCircle, X, Check, HelpCircle, Loader2 } from "lucide-react";
+import { Plus, Search, Trash2, Edit2, Eye, ShieldAlert, ToggleLeft, ToggleRight, Upload, Sparkles, AlertCircle, X, Check, HelpCircle, Loader2, Share2 } from "lucide-react";
 import { Twibbon } from "../types";
 import { checkPngTransparency, generateMockFrame, clearLegacyTwibbonCache } from "../lib/twibbonUtils";
 import { fetchTwibbons, addTwibbon, updateTwibbon, deleteTwibbon, incrementTwibbonUse, uploadTwibbonFrame, deleteTwibbonFile } from "../lib/api";
@@ -491,9 +491,24 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
                     </div>
                     
                     {/* Public link copy button or visual */}
-                    <p className="font-body text-[10px] text-[#f6c374]/80 break-all bg-[#17130e]/50 py-1 px-2 rounded-sm border border-[#4f4538]/5">
-                      /twibon/{twibbon.slug}
-                    </p>
+                    <div className="flex items-center justify-between gap-2 bg-[#17130e]/50 py-1 px-2 rounded-sm border border-[#4f4538]/5">
+                      <span className="font-body text-[10px] text-[#f6c374]/80 break-all truncate">
+                        /twibon/{twibbon.slug}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const url = `https://galerifoto.mkverse.my.id/twibon/${twibbon.slug}`;
+                          navigator.clipboard.writeText(url);
+                          onShowToast(`Tautan https://galerifoto.mkverse.my.id/twibon/${twibbon.slug} disalin!`, "success");
+                        }}
+                        className="text-[#9b8f7f] hover:text-[#f6c374] text-[10px] shrink-0 p-0.5 cursor-pointer"
+                        title={`Salin https://galerifoto.mkverse.my.id/twibon/${twibbon.slug}`}
+                      >
+                        <Share2 className="w-3 h-3" />
+                      </button>
+                    </div>
 
                     <p className="font-body text-xs text-[#9b8f7f] line-clamp-2 leading-relaxed">
                       {twibbon.description}

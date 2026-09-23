@@ -925,12 +925,16 @@ export async function fetchTwibbons(activeOnly: boolean = false): Promise<{ data
 
 /**
  * 2. Fetch Twibon detail by slug or ID
- * Endpoint persis: https://api.mkverse.my.id/api/twibon-detail.php?id=ID / ?slug=SLUG
+ * Endpoint persis: https://api.mkverse.my.id/api/twibon-detail.php?slug=SLUG
+ * Prioritas pencarian berdasarkan slug dan is_active = 1
  */
 export async function fetchTwibbonDetail(slugOrId: string | number): Promise<{ data: any | null; error: Error | null }> {
-  const isId = typeof slugOrId === "number" || (/^\d+$/.test(String(slugOrId)) && !String(slugOrId).includes("-"));
-  const param = isId ? `id=${slugOrId}` : `slug=${encodeURIComponent(slugOrId)}`;
-  const directUrl = `https://api.mkverse.my.id/api/twibon-detail.php?${param}`;
+  const cleanParam = String(slugOrId).trim();
+  if (!cleanParam) {
+    return { data: null, error: new Error("Slug atau ID Twibon tidak valid.") };
+  }
+
+  const directUrl = `https://api.mkverse.my.id/api/twibon-detail.php?slug=${encodeURIComponent(cleanParam)}`;
 
   try {
     const res = await fetch(directUrl, {
@@ -941,43 +945,69 @@ export async function fetchTwibbonDetail(slugOrId: string | number): Promise<{ d
       },
     });
 
-    if (!res.ok) {
-      if (res.status === 404) {
-        return { data: null, error: new Error("Twibon tidak ditemukan atau sudah dihapus.") };
+    if (res.ok) {
+      const contentType = res.headers.get("content-type") || "";
+      const rawText = await res.text();
+
+      if (contentType.includes("application/json") || rawText.trim().startsWith("{")) {
+        try {
+          const json = JSON.parse(rawText);
+          if (json && json.success === true && json.data) {
+            const item = formatTwibbonItem(json.data);
+            if (item.isActive || item.is_active === 1) {
+              return { data: item, error: null };
+            } else {
+              return { data: null, error: new Error("Twibon sedang tidak aktif.") };
+            }
+          }
+        } catch {
+          // JSON parse failed, proceed to fallback
+        }
       }
-      return {
-        data: null,
-        error: new Error(`HTTP Error ${res.status}: ${res.statusText || "Gagal mengambil detail Twibon"}`),
-      };
     }
 
-    const contentType = res.headers.get("content-type") || "";
-    const rawText = await res.text();
+    // Jika twibon-detail.php mengembalikan 400/404/500 (misal endpoint belum di-update di server PHP),
+    // fallback mengambil data aktif dari https://api.mkverse.my.id/api/twibon-list.php?active=1
+    const listRes = await fetchTwibbons(true);
+    if (listRes.data && Array.isArray(listRes.data)) {
+      const slugLower = cleanParam.toLowerCase();
+      const found = listRes.data.find(
+        (t: any) =>
+          String(t.slug).toLowerCase() === slugLower ||
+          String(t.id) === cleanParam
+      );
 
-    if (!contentType.includes("application/json") && !rawText.trim().startsWith("{")) {
-      return {
-        data: null,
-        error: new Error(`Response bukan JSON (HTTP ${res.status}): ${rawText.slice(0, 100)}`),
-      };
+      if (found && (found.isActive || found.is_active === 1)) {
+        return { data: formatTwibbonItem(found), error: null };
+      }
     }
 
-    let json: any;
-    try {
-      json = JSON.parse(rawText);
-    } catch {
-      return {
-        data: null,
-        error: new Error(`Format response API tidak valid (HTTP ${res.status})`),
-      };
-    }
-
-    if (json && json.success === true && json.data) {
-      return { data: formatTwibbonItem(json.data), error: null };
-    }
-
-    return { data: null, error: new Error(json?.message || "Twibon tidak ditemukan atau sudah dihapus.") };
+    return {
+      data: null,
+      error: new Error("Twibon tidak ditemukan atau sudah dihapus."),
+    };
   } catch (err: any) {
-    return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
+    // Network fallback ke twibon-list
+    try {
+      const listRes = await fetchTwibbons(true);
+      if (listRes.data && Array.isArray(listRes.data)) {
+        const slugLower = cleanParam.toLowerCase();
+        const found = listRes.data.find(
+          (t: any) =>
+            String(t.slug).toLowerCase() === slugLower ||
+            String(t.id) === cleanParam
+        );
+
+        if (found && (found.isActive || found.is_active === 1)) {
+          return { data: formatTwibbonItem(found), error: null };
+        }
+      }
+    } catch {}
+
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(String(err?.message || err)),
+    };
   }
 }
 

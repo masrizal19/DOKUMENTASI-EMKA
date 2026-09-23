@@ -79,7 +79,10 @@ export default function PublicTwibon({
     if (!activeCampaign) return;
     
     // Construct the absolute share URL
-    const shareUrl = `${window.location.origin}${window.location.pathname}#twibon/${activeCampaign.slug}`;
+    const origin = typeof window !== "undefined" && window.location.origin.includes("mkverse.my.id")
+      ? "https://galerifoto.mkverse.my.id"
+      : (window.location.origin || "https://galerifoto.mkverse.my.id");
+    const shareUrl = `${origin}/twibon/${activeCampaign.slug}`;
 
     if (navigator.share) {
       try {

@@ -326,19 +326,36 @@ export default function App() {
     const handleLocationChange = () => {
       const hash = window.location.hash;
       const pathname = window.location.pathname;
+      const search = window.location.search;
+
+      // Extract slug if twibon route is opened via search query (e.g. GitHub Pages fallback ?p=/twibon/slug)
+      let detectedTwibonSlug = "";
+      if (search && search.includes("twibon/")) {
+        const match = search.match(/twibon\/([^&?#/]+)/i);
+        if (match && match[1]) {
+          detectedTwibonSlug = decodeURIComponent(match[1]);
+        }
+      }
 
       // Priority: check hash first, then fallback to pathname for entry points/refreshes
       if (hash.startsWith("#admin") || pathname.includes("/admin")) {
         setActiveTab("admin");
+      } else if (detectedTwibonSlug) {
+        setActiveTab("twibon");
+        setActiveSlug(detectedTwibonSlug);
       } else if (hash.startsWith("#twibon/") || pathname.includes("/twibon/")) {
-        const slug = hash.startsWith("#twibon/") 
+        const rawSlug = hash.startsWith("#twibon/") 
           ? hash.replace("#twibon/", "") 
-          : pathname.split("/twibon/").pop()?.split("/")[0];
+          : pathname.split("/twibon/").pop()?.split("/")[0]?.split("?")[0];
+        const slug = rawSlug ? decodeURIComponent(rawSlug.trim()) : "";
         if (slug) {
           setActiveTab("twibon");
           setActiveSlug(slug);
+        } else {
+          setActiveTab("twibon");
+          setActiveSlug("");
         }
-      } else if (hash === "#twibon" || pathname.includes("/twibon")) {
+      } else if (hash === "#twibon" || pathname.endsWith("/twibon") || pathname.endsWith("/twibon/")) {
         setActiveTab("twibon");
         setActiveSlug("");
       } else if (hash.startsWith("#kegiatan/") || pathname.includes("/kegiatan/")) {
@@ -389,6 +406,8 @@ export default function App() {
       ? currentPath.split("/kegiatan/")[0]
       : currentPath.includes("/twibon/")
       ? currentPath.split("/twibon/")[0]
+      : currentPath.includes("/twibon")
+      ? currentPath.split("/twibon")[0]
       : currentPath.endsWith("/") ? currentPath : currentPath.split("/").slice(0, -1).join("/") + "/";
     
     // Ensure basePath ends with a slash and doesn't contain the route
@@ -401,6 +420,10 @@ export default function App() {
       window.history.pushState(null, "", cleanBase + "twibon/" + slug);
       setActiveTab("twibon");
       setActiveSlug(slug);
+    } else if (tab === "twibon") {
+      window.history.pushState(null, "", cleanBase + "twibon");
+      setActiveTab("twibon");
+      setActiveSlug("");
     } else if (slug) {
       window.history.pushState(null, "", cleanBase + "kegiatan/" + slug);
       setActiveTab("detail-kegiatan");
@@ -411,9 +434,6 @@ export default function App() {
       setActiveTab(tab);
       setActiveSlug("");
     }
-    
-    // Trigger the location change manually since pushState doesn't trigger popstate
-    // But since we already called setStates, it's mostly for other listeners if any
   };
 
   const handleAdminLogin = (token: string) => {
