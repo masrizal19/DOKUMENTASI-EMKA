@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { Sparkles, Share2, ArrowLeft, Download, Info, HelpCircle, Heart, Search, Calendar, ChevronRight, Check } from "lucide-react";
+import { Sparkles, Share2, ArrowLeft, Download, Info, HelpCircle, Heart, Search, Calendar, ChevronRight, Check, AlertCircle, Loader2 } from "lucide-react";
 import { Twibbon } from "../types";
-import { getStoredTwibbons, saveStoredTwibbons } from "../lib/twibbonUtils";
+import { clearLegacyTwibbonCache, generateMockFrame } from "../lib/twibbonUtils";
+import { fetchTwibbons, fetchTwibbonDetail, incrementTwibbonUse } from "../lib/api";
 import TwibbonEditor from "./TwibbonEditor";
 
 interface PublicTwibonProps {
@@ -17,25 +18,60 @@ export default function PublicTwibon({
 }: PublicTwibonProps) {
   const [twibbons, setTwibbons] = useState<Twibbon[]>([]);
   const [activeCampaign, setActiveCampaign] = useState<Twibbon | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [copied, setCopied] = useState(false);
 
-  // Load all campaigns and locate the active one if a slug was requested
+  // Load campaigns from MySQL via PHP Backend (Single Source of Truth)
   useEffect(() => {
-    const list = getStoredTwibbons().filter((t) => t.isActive);
-    setTwibbons(list);
+    let isMounted = true;
+    clearLegacyTwibbonCache();
 
-    if (campaignSlug) {
-      const found = list.find((t) => t.slug === campaignSlug);
-      if (found) {
-        setActiveCampaign(found);
+    async function loadData() {
+      setIsLoading(true);
+      setNotFound(false);
+
+      if (campaignSlug) {
+        // Fetch detail Twibon directly from PHP API
+        const res = await fetchTwibbonDetail(campaignSlug);
+        if (!isMounted) return;
+
+        if (res.data && res.data.isActive) {
+          setActiveCampaign(res.data);
+          setNotFound(false);
+        } else {
+          setActiveCampaign(null);
+          setNotFound(true);
+          onShowToast("Twibon tidak ditemukan atau sudah dihapus.", "error");
+        }
       } else {
+        // Fetch published/active Twibons list from PHP API
         setActiveCampaign(null);
-        onShowToast("Kampanye Twibbon tidak ditemukan atau sudah dinonaktifkan.", "error");
+        setNotFound(false);
+        const res = await fetchTwibbons(true);
+        if (!isMounted) return;
+
+        if (res.data) {
+          setTwibbons(res.data);
+        } else {
+          setTwibbons([]);
+          if (res.error) {
+            onShowToast(res.error.message || "Gagal memuat kampanye Twibon.", "error");
+          }
+        }
       }
-    } else {
-      setActiveCampaign(null);
+
+      if (isMounted) {
+        setIsLoading(false);
+      }
     }
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
   }, [campaignSlug]);
 
   // Handle share event
@@ -54,7 +90,6 @@ export default function PublicTwibon({
         });
         onShowToast("Tautan kampanye berhasil dibagikan!", "success");
       } catch (err) {
-        // Fallback if shared cancelled
         copyToClipboard(shareUrl);
       }
     } else {
@@ -69,20 +104,18 @@ export default function PublicTwibon({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Record a download increment in local storage
-  const handleDownloadCompleted = () => {
+  // Record a download increment in MySQL via PHP Backend
+  const handleDownloadCompleted = async () => {
     if (!activeCampaign) return;
     
-    const allList = getStoredTwibbons();
-    const updated = allList.map((t) =>
-      t.id === activeCampaign.id ? { ...t, useCount: t.useCount + 1 } : t
-    );
-    saveStoredTwibbons(updated);
-    
-    // Sync current list
-    setTwibbons(updated.filter((t) => t.isActive));
-    // Sync current active model
+    // Increment count in MySQL database
+    await incrementTwibbonUse(activeCampaign.id);
+
+    // Sync current active model in local state
     setActiveCampaign((prev) => prev ? { ...prev, useCount: prev.useCount + 1 } : null);
+    setTwibbons((prev) =>
+      prev.map((t) => (t.id === activeCampaign.id ? { ...t, useCount: t.useCount + 1 } : t))
+    );
   };
 
   // Filter explore list
@@ -91,6 +124,41 @@ export default function PublicTwibon({
       t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       t.description.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // LOADING STATE
+  if (isLoading) {
+    return (
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-32 flex flex-col items-center justify-center space-y-4 text-center">
+        <Loader2 className="w-10 h-10 text-[#f6c374] animate-spin" />
+        <p className="font-body text-sm text-[#d3c4b3]">Memuat data kampanye Twibon dari database...</p>
+      </div>
+    );
+  }
+
+  // NOT FOUND STATE (Requirement 7)
+  if (campaignSlug && notFound) {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-32 text-center space-y-6">
+        <div className="w-16 h-16 rounded-full border border-red-500/30 bg-red-500/10 text-red-400 flex items-center justify-center mx-auto">
+          <AlertCircle className="w-8 h-8" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="font-display text-2xl font-bold text-[#eae1d8]">Twibon Tidak Ditemukan</h2>
+          <p className="font-body text-sm text-[#9b8f7f] leading-relaxed">
+            Twibon tidak ditemukan atau sudah dihapus dari server Galeri EMKA.
+          </p>
+        </div>
+        <div>
+          <button
+            onClick={() => onNavigate("twibon")}
+            className="inline-flex items-center gap-2 bg-[#f6c374] hover:bg-[#d8a85c] text-[#17130e] font-subheading text-xs tracking-widest uppercase font-bold py-3 px-6 rounded-sm transition-all cursor-pointer"
+          >
+            <ArrowLeft className="w-4 h-4" /> Jelajahi Twibon Lain
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // VIEW 1: CAMPAIGN DETAIL WORKSPACE
   if (campaignSlug && activeCampaign) {
@@ -116,59 +184,66 @@ export default function PublicTwibon({
 
         {/* WORKSPACE FLEX GRID */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
-          {/* Left Panel: Campaign Meta Info (4 cols) */}
+          {/* Left Panel: Campaign Meta Info (5 cols) */}
           <div className="lg:col-span-5 space-y-6">
             <div className="space-y-3">
-              <span className="font-subheading text-xs tracking-widest text-[#f6c374] uppercase block font-semibold">
-                KAMPANYE AKTIF
+              <span className="font-subheading text-[10px] tracking-widest text-[#f6c374] uppercase block">
+                KAMPANYE RESMI SMK MULTI KARYA
               </span>
-              <h1 className="font-display text-2xl sm:text-4xl font-extrabold text-[#eae1d8] tracking-tight leading-tight">
+              <h1 className="font-display text-3xl sm:text-4xl font-black text-[#eae1d8] tracking-tight leading-tight">
                 {activeCampaign.title}
               </h1>
-              
-              {/* Campaign Stats badges */}
-              <div className="flex gap-3 pt-1">
-                <span className="font-subheading text-[10px] tracking-wider text-[#9b8f7f] bg-[#110e09] border border-[#4f4538]/20 px-3 py-1 rounded-sm uppercase">
-                  Rasio {activeCampaign.ratio}
+            </div>
+
+            <p className="font-body text-sm text-[#d3c4b3]/85 leading-relaxed">
+              {activeCampaign.description || "Mari berpartisipasi dan semarakkan momen ini dengan memasang foto terbaik Anda menggunakan bingkai resmi kami."}
+            </p>
+
+            <div className="grid grid-cols-2 gap-4 pt-4 border-t border-[#4f4538]/20">
+              <div className="bg-[#110e09] border border-[#4f4538]/20 p-4 rounded-sm space-y-1">
+                <span className="font-subheading text-[9px] tracking-widest text-[#9b8f7f] uppercase block">
+                  Format Proporsi
                 </span>
-                <span className="font-subheading text-[10px] tracking-wider text-[#f6c374] bg-[#110e09] border border-[#4f4538]/20 px-3 py-1 rounded-sm uppercase font-bold flex items-center gap-1">
-                  <Heart className="w-3.5 h-3.5 fill-[#f6c374]" /> {activeCampaign.useCount} Diunduh
+                <span className="font-display text-lg font-bold text-[#f6c374]">
+                  {activeCampaign.ratio}
+                </span>
+              </div>
+
+              <div className="bg-[#110e09] border border-[#4f4538]/20 p-4 rounded-sm space-y-1">
+                <span className="font-subheading text-[9px] tracking-widest text-[#9b8f7f] uppercase block">
+                  Digunakan Sebanyak
+                </span>
+                <span className="font-display text-lg font-bold text-[#eae1d8]">
+                  {activeCampaign.useCount.toLocaleString("id-ID")} Kali
                 </span>
               </div>
             </div>
 
-            <p className="font-body text-xs sm:text-sm text-[#d3c4b3] leading-relaxed bg-[#110e09]/50 border border-[#4f4538]/10 p-5 rounded-sm">
-              {activeCampaign.description}
-            </p>
-
-            {/* Step-by-step instructions */}
-            <div className="glass-panel p-6 border border-[#4f4538]/15 rounded-sm space-y-4">
-              <h4 className="font-display text-xs font-bold text-[#eae1d8] uppercase tracking-wider flex items-center gap-2">
-                <Info className="w-4 h-4 text-[#f6c374]" /> Panduan Penggunaan:
-              </h4>
-              <ul className="space-y-3.5">
-                <li className="flex gap-3 text-xs text-[#d3c4b3]">
-                  <span className="w-5 h-5 rounded-full bg-[#110e09] border border-[#4f4538]/30 flex items-center justify-center text-[#f6c374] font-bold shrink-0">1</span>
-                  <span className="leading-relaxed">Klik tombol <strong>"PILIH FOTO ANDA"</strong> untuk memuat foto yang ingin Anda jadikan Twibbon.</span>
+            {/* Instruction Checklist Card */}
+            <div className="bg-[#17130e] border border-[#4f4538]/20 p-5 rounded-sm space-y-3">
+              <span className="font-subheading text-[10px] tracking-widest text-[#eae1d8] uppercase flex items-center gap-1.5 font-bold">
+                <Info className="w-3.5 h-3.5 text-[#f6c374]" /> Petunjuk Penggunaan
+              </span>
+              <ul className="space-y-2 font-body text-xs text-[#d3c4b3]/85">
+                <li className="flex items-start gap-2">
+                  <span className="text-[#f6c374] font-bold">1.</span> Pilih foto terbaik dari galeri atau kamera HP/laptop Anda.
                 </li>
-                <li className="flex gap-3 text-xs text-[#d3c4b3]">
-                  <span className="w-5 h-5 rounded-full bg-[#110e09] border border-[#4f4538]/30 flex items-center justify-center text-[#f6c374] font-bold shrink-0">2</span>
-                  <span className="leading-relaxed">Gunakan fitur drag, zoom slider, dan rotasi tombol untuk memosisikan wajah/foto di belakang frame.</span>
+                <li className="flex items-start gap-2">
+                  <span className="text-[#f6c374] font-bold">2.</span> Atur posisi, zoom, atau rotasi agar wajah pas di dalam bingkai transparan.
                 </li>
-                <li className="flex gap-3 text-xs text-[#d3c4b3]">
-                  <span className="w-5 h-5 rounded-full bg-[#110e09] border border-[#4f4538]/30 flex items-center justify-center text-[#f6c374] font-bold shrink-0">3</span>
-                  <span className="leading-relaxed">Klik tombol <strong>"UNDUH TWIBBON SEKARANG"</strong> untuk mengekspor hasil ke perangkat Anda dengan kualitas super tajam!</span>
+                <li className="flex items-start gap-2">
+                  <span className="text-[#f6c374] font-bold">3.</span> Klik tombol Unduh Twibbon Foto untuk menyimpan hasil resolusi tinggi.
                 </li>
               </ul>
             </div>
           </div>
 
-          {/* Right Panel: Interactive Sandbox Editor (7 cols) */}
-          <div className="lg:col-span-7 flex justify-center">
-            <div className="w-full max-w-lg bg-[#110e09]/30 border border-[#4f4538]/15 p-6 rounded-sm shadow-2xl flex flex-col items-center">
+          {/* Right Panel: Interactive Canvas Editor (7 cols) */}
+          <div className="lg:col-span-7">
+            <div className="bg-[#110e09] border border-[#4f4538]/20 rounded-sm p-6 sm:p-8 shadow-2xl">
               <TwibbonEditor
                 ratio={activeCampaign.ratio}
-                frameUrl={activeCampaign.designUrl}
+                frameUrl={activeCampaign.designUrl || generateMockFrame(activeCampaign.title, activeCampaign.ratio)}
                 slug={activeCampaign.slug}
                 title={activeCampaign.title}
                 onShowToast={onShowToast}
@@ -181,20 +256,19 @@ export default function PublicTwibon({
     );
   }
 
-  // VIEW 2: EXPLORE CENTRAL TWIBBON DIRECTORY
+  // VIEW 2: PUBLIC DIRECTORY EXPLORATION
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 sm:py-28 space-y-16">
-      
-      {/* Editorial Header */}
-      <div className="space-y-4 max-w-3xl">
-        <span className="font-subheading text-xs tracking-widest text-[#f6c374] uppercase block font-semibold">
-          KAMPANYE PROMOSI SEKOLAH
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-24 sm:py-28 space-y-12">
+      {/* DIRECTORY HERO BANNER */}
+      <div className="space-y-4 text-center max-w-2xl mx-auto">
+        <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-[#f6c374]/30 bg-[#f6c374]/10 text-[#f6c374] font-subheading text-[10px] tracking-widest uppercase font-bold">
+          <Sparkles className="w-3 h-3" /> RUANG KAMPANYE EMKA
         </span>
-        <h1 className="font-display text-4xl sm:text-6xl font-extrabold text-[#eae1d8] tracking-tight leading-tight">
-          Twibon EMKA
+        <h1 className="font-display text-4xl sm:text-5xl font-black text-[#eae1d8] tracking-tight">
+          Twibbon Resmi Galeri EMKA
         </h1>
-        <p className="font-body text-base text-[#d3c4b3] leading-relaxed">
-          Pilih dari koleksi frame kegiatan resmi SMK Multi Karya Medan. Dukung acara sekolah, ikuti keseruannya, dan bagikan foto keren Anda di media sosial!
+        <p className="font-body text-sm text-[#d3c4b3]/85 leading-relaxed">
+          Pilih kampanye favorit, pasang foto Anda dengan mudah tanpa aplikasi tambahan, dan bagikan ke media sosial untuk mendukung setiap momen kebanggaan sekolah.
         </p>
       </div>
 
@@ -241,7 +315,7 @@ export default function PublicTwibon({
                     }}
                   />
                   <img
-                    src={twibbon.designUrl}
+                    src={twibbon.designUrl || generateMockFrame(twibbon.title, twibbon.ratio)}
                     alt={twibbon.title}
                     className="max-w-full max-h-full object-contain relative z-10 group-hover:scale-105 transition-transform duration-500"
                     referrerPolicy="no-referrer"

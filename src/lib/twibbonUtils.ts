@@ -152,62 +152,14 @@ export function generateMockFrame(title: string, ratio: "1:1" | "4:3" | "16:9" |
 }
 
 /**
- * Gets local twibbons or initializes them with beautifully generated mock campaigns
+ * Clears any old legacy localStorage cache to guarantee MySQL is the single source of truth.
  */
-export function getStoredTwibbons(): Twibbon[] {
-  if (typeof window === "undefined") return [];
-
-  const stored = localStorage.getItem("galeri_emka_twibons");
-  if (stored) {
-    try {
-      return JSON.parse(stored);
-    } catch (_) {}
-  }
-
-  // Initialize with beautiful mock data
-  const mockTwibbons: Twibbon[] = [
-    {
-      id: "1",
-      title: "MPLS SMK MULTI KARYA 2026",
-      slug: "mpls-2026",
-      description: "Gunakan Twibbon resmi untuk menyambut Masa Pengenalan Lingkungan Sekolah (MPLS) SMK Multi Karya Medan tahun pelajaran 2026/2027.",
-      ratio: "1:1",
-      designUrl: generateMockFrame("MPLS 2026", "1:1"),
-      isActive: true,
-      useCount: 142,
-      createdAt: "2026-07-10T08:00:00Z"
-    },
-    {
-      id: "2",
-      title: "MILAD SMK MULTI KARYA",
-      slug: "milad-smk-2026",
-      description: "Mari meriahkan perayaan Milad ke-45 SMK Multi Karya Medan dengan menggunakan Twibbon resmi kebanggaan kita.",
-      ratio: "4:3",
-      designUrl: generateMockFrame("MILAD KE-45", "4:3"),
-      isActive: true,
-      useCount: 88,
-      createdAt: "2026-08-15T09:30:00Z"
-    },
-    {
-      id: "3",
-      title: "PORSENIK EMKA 2026",
-      slug: "porsenik-2026",
-      description: "Tunjukkan semangat sportivitas dan kreativitasmu dalam Pekan Olahraga dan Seni (Porsenik) SMK Multi Karya Medan tahun 2026.",
-      ratio: "9:16",
-      designUrl: generateMockFrame("PORSENIK 2026", "9:16"),
-      isActive: true,
-      useCount: 205,
-      createdAt: "2026-09-01T10:15:00Z"
-    }
-  ];
-
-  localStorage.setItem("galeri_emka_twibons", JSON.stringify(mockTwibbons));
-  return mockTwibbons;
-}
-
-export function saveStoredTwibbons(twibbons: Twibbon[]) {
+export function clearLegacyTwibbonCache(): void {
   if (typeof window !== "undefined") {
-    localStorage.setItem("galeri_emka_twibons", JSON.stringify(twibbons));
+    try {
+      localStorage.removeItem("galeri_emka_twibons");
+      sessionStorage.removeItem("galeri_emka_twibons");
+    } catch (_) {}
   }
 }
 

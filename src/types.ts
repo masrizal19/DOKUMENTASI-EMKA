@@ -144,14 +144,20 @@ export interface DashboardStats {
 }
 
 export interface Twibbon {
-  id: string;
+  id: string | number;
   title: string;
   slug: string;
   description: string;
   ratio: "1:1" | "4:3" | "16:9" | "9:16";
-  designUrl: string; // Base64 data-URI of the transparent PNG
+  designUrl: string;
+  design_url?: string;
   isActive: boolean;
+  is_active?: number | boolean;
   useCount: number;
+  use_count?: number;
   createdAt: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
 }
 

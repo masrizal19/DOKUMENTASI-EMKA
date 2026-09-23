@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Search, Trash2, Edit2, Eye, ShieldAlert, ToggleLeft, ToggleRight, Upload, Sparkles, AlertCircle, X, Check, HelpCircle } from "lucide-react";
+import { Plus, Search, Trash2, Edit2, Eye, ShieldAlert, ToggleLeft, ToggleRight, Upload, Sparkles, AlertCircle, X, Check, HelpCircle, Loader2 } from "lucide-react";
 import { Twibbon } from "../types";
-import { getStoredTwibbons, saveStoredTwibbons, checkPngTransparency, generateMockFrame } from "../lib/twibbonUtils";
+import { checkPngTransparency, generateMockFrame, clearLegacyTwibbonCache } from "../lib/twibbonUtils";
+import { fetchTwibbons, addTwibbon, updateTwibbon, deleteTwibbon, incrementTwibbonUse } from "../lib/api";
 import TwibbonEditor from "./TwibbonEditor";
 
 interface AdminTwibonProps {
@@ -11,6 +12,9 @@ interface AdminTwibonProps {
 export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
   const [twibbons, setTwibbons] = useState<Twibbon[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Modal states
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -32,19 +36,31 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
     isActive: true
   });
   
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState("");
   const [isCheckingTransparency, setIsCheckingTransparency] = useState(false);
   const [transparencyWarn, setTransparencyWarn] = useState(false);
 
-  // Initialize data
+  // Load Twibbons from MySQL via PHP Backend (Single Source of Truth)
+  const loadTwibbons = async () => {
+    setIsLoading(true);
+    clearLegacyTwibbonCache();
+    const res = await fetchTwibbons(false);
+    if (res.data) {
+      setTwibbons(res.data);
+    } else if (res.error) {
+      console.error("[ADMIN TWIBON] Load error:", res.error);
+      onShowToast(res.error.message || "Gagal memuat data Twibon dari database.", "error");
+    }
+    setIsLoading(false);
+  };
+
   useEffect(() => {
-    setTwibbons(getStoredTwibbons());
+    loadTwibbons();
   }, []);
 
-  // Sync data with localStorage
   const refreshList = () => {
-    const data = getStoredTwibbons();
-    setTwibbons(data);
+    loadTwibbons();
   };
 
   // Helper to generate a slug from title
@@ -73,10 +89,11 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
 
     // Validate PNG
     if (file.type !== "image/png" && !file.name.toLowerCase().endsWith(".png")) {
-      onShowToast("File frame harus berupa format PNG transparan.", "error");
+      onShowToast("File frame harus berupa format PNG transparan (.png).", "error");
       return;
     }
 
+    setSelectedFile(file);
     setUploadedFileName(file.name);
     setIsCheckingTransparency(true);
     setTransparencyWarn(false);
@@ -102,22 +119,36 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
   };
 
   // Toggle active campaign
-  const handleToggleActive = (twibbon: Twibbon, e: React.MouseEvent) => {
+  const handleToggleActive = async (twibbon: Twibbon, e: React.MouseEvent) => {
     e.stopPropagation();
-    const updated = twibbons.map((t) =>
-      t.id === twibbon.id ? { ...t, isActive: !t.isActive } : t
+    const newStatus = !twibbon.isActive;
+    
+    // Optimistic UI update
+    setTwibbons((prev) =>
+      prev.map((t) => (t.id === twibbon.id ? { ...t, isActive: newStatus, is_active: newStatus ? 1 : 0 } : t))
     );
-    saveStoredTwibbons(updated);
-    setTwibbons(updated);
-    onShowToast(
-      `Kampanye "${twibbon.title}" berhasil ${!twibbon.isActive ? "diaktifkan" : "dinonaktifkan"}.`,
-      "success"
-    );
+
+    const res = await updateTwibbon({
+      id: twibbon.id,
+      is_active: newStatus ? 1 : 0
+    });
+
+    if (res.error) {
+      onShowToast(res.error.message || "Gagal mengubah status aktif Twibon.", "error");
+      await loadTwibbons();
+    } else {
+      onShowToast(
+        `Kampanye "${twibbon.title}" berhasil ${newStatus ? "diaktifkan" : "dinonaktifkan"}.`,
+        "success"
+      );
+      await loadTwibbons();
+    }
   };
 
   // Open creation form
   const openCreateModal = () => {
     setEditingTwibbon(null);
+    setSelectedFile(null);
     setUploadedFileName("");
     setTransparencyWarn(false);
     setIsCheckingTransparency(false);
@@ -135,7 +166,8 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
   // Open edit form
   const openEditModal = (twibbon: Twibbon) => {
     setEditingTwibbon(twibbon);
-    setUploadedFileName("frame_existing.png");
+    setSelectedFile(null);
+    setUploadedFileName(twibbon.designUrl ? "frame_existing.png" : "");
     setTransparencyWarn(false);
     setIsCheckingTransparency(false);
     setFormData({
@@ -150,7 +182,7 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
   };
 
   // Submit form (Save / Update)
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.title.trim()) {
@@ -164,7 +196,7 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
 
     // Check slug duplication
     const duplicate = twibbons.find(
-      (t) => t.slug === formData.slug && (!editingTwibbon || t.id !== editingTwibbon.id)
+      (t) => t.slug === formData.slug && (!editingTwibbon || String(t.id) !== String(editingTwibbon.id))
     );
     if (duplicate) {
       onShowToast("Slug kampanye sudah digunakan oleh kampanye lain.", "error");
@@ -172,50 +204,58 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
     }
 
     let finalDesignUrl = formData.designUrl;
-    // Generate fallback template design if no file uploaded
-    if (!finalDesignUrl) {
+    if (!finalDesignUrl && !selectedFile) {
       onShowToast("Membuat desain frame template emas otomatis untuk kampanye...", "success");
       finalDesignUrl = generateMockFrame(formData.title, formData.ratio);
     }
 
-    let updatedTwibbons: Twibbon[] = [];
+    setIsSubmitting(true);
 
     if (editingTwibbon) {
       // Update existing
-      updatedTwibbons = twibbons.map((t) =>
-        t.id === editingTwibbon.id
-          ? {
-              ...t,
-              title: formData.title,
-              slug: formData.slug,
-              description: formData.description,
-              ratio: formData.ratio,
-              designUrl: finalDesignUrl,
-              isActive: formData.isActive
-            }
-          : t
-      );
+      const res = await updateTwibbon({
+        id: editingTwibbon.id,
+        title: formData.title.trim(),
+        slug: formData.slug.trim(),
+        description: formData.description.trim(),
+        ratio: formData.ratio,
+        design_url: finalDesignUrl,
+        is_active: formData.isActive ? 1 : 0,
+        file: selectedFile || undefined
+      });
+
+      setIsSubmitting(false);
+
+      if (res.error) {
+        onShowToast(res.error.message || "Gagal memperbarui kampanye Twibon.", "error");
+        return;
+      }
+
       onShowToast(`Kampanye "${formData.title}" berhasil diperbarui.`, "success");
     } else {
       // Create new campaign
-      const newTwibbon: Twibbon = {
-        id: Date.now().toString(),
-        title: formData.title,
-        slug: formData.slug,
-        description: formData.description,
+      const res = await addTwibbon({
+        title: formData.title.trim(),
+        slug: formData.slug.trim(),
+        description: formData.description.trim(),
         ratio: formData.ratio,
-        designUrl: finalDesignUrl,
-        isActive: formData.isActive,
-        useCount: 0,
-        createdAt: new Date().toISOString()
-      };
-      updatedTwibbons = [newTwibbon, ...twibbons];
+        design_url: finalDesignUrl,
+        is_active: formData.isActive ? 1 : 0,
+        file: selectedFile || undefined
+      });
+
+      setIsSubmitting(false);
+
+      if (res.error) {
+        onShowToast(res.error.message || "Gagal menambahkan kampanye Twibon.", "error");
+        return;
+      }
+
       onShowToast(`Kampanye Twibbon "${formData.title}" berhasil dibuat!`, "success");
     }
 
-    saveStoredTwibbons(updatedTwibbons);
-    setTwibbons(updatedTwibbons);
     setIsFormOpen(false);
+    await loadTwibbons();
   };
 
   // Handle delete trigger
@@ -225,14 +265,22 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
     setIsDeleteModalOpen(true);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!twibbonToDelete) return;
-    const updated = twibbons.filter((t) => t.id !== twibbonToDelete.id);
-    saveStoredTwibbons(updated);
-    setTwibbons(updated);
+    setIsDeleting(true);
+
+    const res = await deleteTwibbon(twibbonToDelete.id);
+    setIsDeleting(false);
+
+    if (res.error) {
+      onShowToast(res.error.message || "Gagal menghapus Twibon dari database.", "error");
+      return;
+    }
+
     setIsDeleteModalOpen(false);
-    onShowToast(`Kampanye "${twibbonToDelete.title}" telah dihapus secara permanen.`, "success");
+    onShowToast(`Kampanye "${twibbonToDelete.title}" telah dihapus secara permanen dari database.`, "success");
     setTwibbonToDelete(null);
+    await loadTwibbons();
   };
 
   // Open workspace preview
@@ -287,7 +335,12 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
       </div>
 
       {/* TWIBBON GRID */}
-      {filteredTwibbons.length === 0 ? (
+      {isLoading ? (
+        <div className="flex flex-col items-center justify-center p-16 text-center bg-[#110e09]/40 border border-[#4f4538]/20 rounded-sm space-y-4">
+          <Loader2 className="w-8 h-8 text-[#f6c374] animate-spin" />
+          <p className="font-body text-xs text-[#d3c4b3]">Memuat data Twibon dari database MySQL...</p>
+        </div>
+      ) : filteredTwibbons.length === 0 ? (
         <div className="flex flex-col items-center justify-center p-16 text-center bg-[#110e09]/40 border border-dashed border-[#4f4538]/20 rounded-sm space-y-4">
           <div className="w-12 h-12 rounded-full border border-[#4f4538]/30 flex items-center justify-center text-[#9b8f7f] bg-[#110e09]">
             <HelpCircle className="w-6 h-6" />
@@ -318,7 +371,7 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
                     }}
                   />
                   <img
-                    src={twibbon.designUrl}
+                    src={twibbon.designUrl || generateMockFrame(twibbon.title, twibbon.ratio)}
                     alt={twibbon.title}
                     className="max-w-full max-h-full object-contain relative z-10"
                     referrerPolicy="no-referrer"
@@ -573,20 +626,28 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
             </div>
             <div className="p-5 space-y-4">
               <p className="font-body text-xs text-[#d3c4b3] leading-relaxed">
-                Apakah Anda yakin ingin menghapus kampanye Twibbon <strong>{twibbonToDelete.title}</strong>? Seluruh statistik unduhan akan ikut terhapus permanen dari lokal browser.
+                Apakah Anda yakin ingin menghapus kampanye Twibbon <strong>{twibbonToDelete.title}</strong>? Data record di database MySQL dan berkas PNG terkait di server akan dihapus secara permanen.
               </p>
               <div className="flex gap-3">
                 <button
                   onClick={() => setIsDeleteModalOpen(false)}
-                  className="flex-1 bg-[#110e09] border border-[#4f4538]/25 text-[#d3c4b3] font-subheading text-xs tracking-widest uppercase py-2.5 rounded-sm transition-all"
+                  disabled={isDeleting}
+                  className="flex-1 bg-[#110e09] border border-[#4f4538]/25 text-[#d3c4b3] font-subheading text-xs tracking-widest uppercase py-2.5 rounded-sm transition-all disabled:opacity-50"
                 >
                   Batal
                 </button>
                 <button
                   onClick={handleDelete}
-                  className="flex-1 bg-red-600 hover:bg-red-500 text-white font-subheading text-xs tracking-widest uppercase py-2.5 rounded-sm transition-all font-bold"
+                  disabled={isDeleting}
+                  className="flex-1 bg-red-600 hover:bg-red-500 text-white font-subheading text-xs tracking-widest uppercase py-2.5 rounded-sm transition-all font-bold flex items-center justify-center gap-2 disabled:opacity-50"
                 >
-                  Ya, Hapus
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Menghapus...
+                    </>
+                  ) : (
+                    "Ya, Hapus"
+                  )}
                 </button>
               </div>
             </div>
@@ -618,17 +679,13 @@ export default function AdminTwibon({ onShowToast }: AdminTwibonProps) {
             <div className="p-6">
               <TwibbonEditor
                 ratio={previewTwibbon.ratio}
-                frameUrl={previewTwibbon.designUrl}
+                frameUrl={previewTwibbon.designUrl || generateMockFrame(previewTwibbon.title, previewTwibbon.ratio)}
                 slug={previewTwibbon.slug}
                 title={previewTwibbon.title}
                 onShowToast={onShowToast}
-                onDownloadCompleted={() => {
-                  // Admin download increment locally for test
-                  const updated = twibbons.map((t) =>
-                    t.id === previewTwibbon.id ? { ...t, useCount: t.useCount + 1 } : t
-                  );
-                  saveStoredTwibbons(updated);
-                  setTwibbons(updated);
+                onDownloadCompleted={async () => {
+                  await incrementTwibbonUse(previewTwibbon.id);
+                  loadTwibbons();
                 }}
               />
             </div>

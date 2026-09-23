@@ -51,6 +51,10 @@ console.log("Server initialized. Running on local db.json database with link-bas
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
+const TWIBON_UPLOADS_DIR = path.join(UPLOADS_DIR, "twibon");
+if (!fs.existsSync(TWIBON_UPLOADS_DIR)) {
+  fs.mkdirSync(TWIBON_UPLOADS_DIR, { recursive: true });
+}
 
 // Enable large JSON body parser for base64 file uploads
 app.use(express.json({ limit: "50mb" }));
@@ -214,6 +218,49 @@ function readDB(): { activities: Activity[]; photos: Photo[]; settings: Settings
         hasChanges = true;
       }
       
+      // Ensure twibons array exists
+      if (!db.twibons) {
+        db.twibons = [
+          {
+            id: 1,
+            title: "MPLS SMK MULTI KARYA 2026",
+            slug: "mpls-2026",
+            description: "Gunakan Twibbon resmi untuk menyambut Masa Pengenalan Lingkungan Sekolah (MPLS) SMK Multi Karya Medan tahun pelajaran 2026/2027.",
+            ratio: "1:1",
+            design_url: "",
+            is_active: 1,
+            use_count: 142,
+            created_at: "2026-07-10 08:00:00",
+            updated_at: "2026-07-10 08:00:00"
+          },
+          {
+            id: 2,
+            title: "MILAD SMK MULTI KARYA",
+            slug: "milad-smk-2026",
+            description: "Mari meriahkan perayaan Milad ke-45 SMK Multi Karya Medan dengan menggunakan Twibbon resmi kebanggaan kita.",
+            ratio: "4:3",
+            design_url: "",
+            is_active: 1,
+            use_count: 88,
+            created_at: "2026-08-15 09:30:00",
+            updated_at: "2026-08-15 09:30:00"
+          },
+          {
+            id: 3,
+            title: "PORSENIK EMKA 2026",
+            slug: "porsenik-2026",
+            description: "Tunjukkan semangat sportivitas dan kreativitasmu dalam Pekan Olahraga dan Seni (Porsenik) SMK Multi Karya Medan tahun 2026.",
+            ratio: "9:16",
+            design_url: "",
+            is_active: 1,
+            use_count: 205,
+            created_at: "2026-09-01 10:15:00",
+            updated_at: "2026-09-01 10:15:00"
+          }
+        ];
+        hasChanges = true;
+      }
+
       if (hasChanges) {
         fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf-8");
       }
@@ -446,13 +493,13 @@ function readDB(): { activities: Activity[]; photos: Photo[]; settings: Settings
     }
   });
 
-  const db = { activities: initialActivities, photos: initialPhotos, settings: migrateSettings(initialSettings), medias: defaultMedias };
+  const db = { activities: initialActivities, photos: initialPhotos, settings: migrateSettings(initialSettings), medias: defaultMedias, twibons: [] };
   writeDB(db);
   return db;
 }
 
 // Helper: Write Database
-function writeDB(data: { activities: Activity[]; photos: Photo[]; settings: Settings; medias: MediaItem[] }) {
+function writeDB(data: { activities: Activity[]; photos: Photo[]; settings: Settings; medias: MediaItem[]; twibons?: any[] }) {
   try {
     fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2), "utf-8");
   } catch (error) {
@@ -862,6 +909,278 @@ app.post("/api/save-settings.php", async (req, res) => {
     res.json(json);
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ============================================================================
+// TWIBON API ROUTES (MySQL Proxy + Fallback Store with Cache Prevention)
+// ============================================================================
+
+// Set Cache Prevention Headers helper
+function setNoCacheHeaders(res: express.Response) {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+}
+
+// GET Twibons / Twibon Detail
+app.get(["/api/twibons.php", "/api/twibon.php"], async (req, res) => {
+  setNoCacheHeaders(res);
+  const queryStr = new URLSearchParams(req.query as any).toString();
+  const remoteUrl = `https://api.mkverse.my.id/api/twibons.php${queryStr ? `?${queryStr}` : ""}`;
+
+  try {
+    const remoteRes = await fetch(remoteUrl, {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache"
+      }
+    });
+
+    if (remoteRes.status === 404) {
+      return res.status(404).json({ success: false, message: "Twibon tidak ditemukan atau sudah dihapus." });
+    }
+
+    if (remoteRes.ok) {
+      const json = await remoteRes.json();
+      return res.status(remoteRes.status).json(json);
+    }
+  } catch (err) {
+    // Remote server down or unreachable, proceed to local DB fallback
+  }
+
+  // Fallback to local DB
+  try {
+    const db: any = readDB();
+    const twibons: any[] = db.twibons || [];
+
+    if (req.query.slug) {
+      const targetSlug = String(req.query.slug);
+      const found = twibons.find((t) => t.slug === targetSlug);
+      if (!found) {
+        return res.status(404).json({ success: false, message: "Twibon tidak ditemukan atau sudah dihapus." });
+      }
+      return res.json({ success: true, message: "Data Twibon berhasil diambil.", data: found });
+    }
+
+    if (req.query.id) {
+      const targetId = String(req.query.id);
+      const found = twibons.find((t) => String(t.id) === targetId);
+      if (!found) {
+        return res.status(404).json({ success: false, message: "Twibon tidak ditemukan atau sudah dihapus." });
+      }
+      return res.json({ success: true, message: "Data Twibon berhasil diambil.", data: found });
+    }
+
+    if (req.query.active === "1") {
+      const activeList = twibons.filter((t) => t.is_active === 1 || t.isActive === true);
+      return res.json({ success: true, message: "Data Twibon berhasil diambil.", count: activeList.length, data: activeList });
+    }
+
+    return res.json({ success: true, message: "Data Twibon berhasil diambil.", count: twibons.length, data: twibons });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ADD / POST Twibon
+app.post(["/api/add-twibon.php", "/api/twibons.php"], async (req, res) => {
+  setNoCacheHeaders(res);
+  const action = req.body.action || (req.headers["x-http-method-override"] === "DELETE" ? "delete" : "");
+
+  // Handle action=delete
+  if (action === "delete") {
+    const idToDelete = req.body.id;
+    try {
+      const remoteRes = await fetch("https://api.mkverse.my.id/api/delete-twibon.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: idToDelete })
+      });
+      if (remoteRes.ok) {
+        const json = await remoteRes.json();
+        return res.json(json);
+      }
+    } catch {}
+
+    const db: any = readDB();
+    db.twibons = (db.twibons || []).filter((t: any) => String(t.id) !== String(idToDelete));
+    writeDB(db);
+    return res.json({ success: true, message: "Twibon berhasil dihapus.", data: { id: idToDelete, database_deleted: true } });
+  }
+
+  // Handle action=increment_use
+  if (action === "increment_use") {
+    const targetId = req.body.id;
+    try {
+      await fetch("https://api.mkverse.my.id/api/twibons.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: targetId, action: "increment_use" })
+      });
+    } catch {}
+
+    const db: any = readDB();
+    if (db.twibons) {
+      db.twibons = db.twibons.map((t: any) =>
+        String(t.id) === String(targetId) ? { ...t, use_count: (t.use_count || 0) + 1 } : t
+      );
+      writeDB(db);
+    }
+    return res.json({ success: true, message: "Statistik penggunaan berhasil diperbarui." });
+  }
+
+  // Handle action=update
+  if (action === "update") {
+    const updateId = req.body.id;
+    try {
+      const remoteRes = await fetch("https://api.mkverse.my.id/api/update-twibon.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req.body)
+      });
+      if (remoteRes.ok) {
+        const json = await remoteRes.json();
+        return res.json(json);
+      }
+    } catch {}
+
+    const db: any = readDB();
+    let updatedItem: any = null;
+    db.twibons = (db.twibons || []).map((t: any) => {
+      if (String(t.id) === String(updateId)) {
+        updatedItem = {
+          ...t,
+          title: req.body.title !== undefined ? req.body.title : t.title,
+          slug: req.body.slug !== undefined ? req.body.slug : t.slug,
+          description: req.body.description !== undefined ? req.body.description : t.description,
+          ratio: req.body.ratio !== undefined ? req.body.ratio : t.ratio,
+          design_url: req.body.design_url !== undefined ? req.body.design_url : t.design_url,
+          is_active: req.body.is_active !== undefined ? (req.body.is_active ? 1 : 0) : t.is_active,
+          updated_at: new Date().toISOString()
+        };
+        return updatedItem;
+      }
+      return t;
+    });
+    writeDB(db);
+    return res.json({ success: true, message: "Kampanye Twibon berhasil diperbarui.", data: updatedItem });
+  }
+
+  // Create new Twibon
+  try {
+    const remoteRes = await fetch("https://api.mkverse.my.id/api/add-twibon.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body)
+    });
+    if (remoteRes.ok) {
+      const json = await remoteRes.json();
+      return res.json(json);
+    }
+  } catch {}
+
+  // Local fallback creation
+  try {
+    const db: any = readDB();
+    if (!db.twibons) db.twibons = [];
+
+    const newId = Date.now();
+    const newTwibon = {
+      id: newId,
+      title: req.body.title || "",
+      slug: req.body.slug || `twibon-${newId}`,
+      description: req.body.description || "",
+      ratio: req.body.ratio || "1:1",
+      design_url: req.body.design_url || "",
+      is_active: req.body.is_active !== undefined ? (req.body.is_active ? 1 : 0) : 1,
+      use_count: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    db.twibons.unshift(newTwibon);
+    writeDB(db);
+    return res.status(201).json({ success: true, message: "Kampanye Twibon berhasil ditambahkan.", data: newTwibon });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// UPDATE Twibon
+app.post("/api/update-twibon.php", async (req, res) => {
+  setNoCacheHeaders(res);
+  try {
+    const remoteRes = await fetch("https://api.mkverse.my.id/api/update-twibon.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body)
+    });
+    if (remoteRes.ok) {
+      const json = await remoteRes.json();
+      return res.json(json);
+    }
+  } catch {}
+
+  try {
+    const db: any = readDB();
+    const updateId = req.body.id;
+    let updatedItem: any = null;
+
+    db.twibons = (db.twibons || []).map((t: any) => {
+      if (String(t.id) === String(updateId)) {
+        updatedItem = {
+          ...t,
+          title: req.body.title !== undefined ? req.body.title : t.title,
+          slug: req.body.slug !== undefined ? req.body.slug : t.slug,
+          description: req.body.description !== undefined ? req.body.description : t.description,
+          ratio: req.body.ratio !== undefined ? req.body.ratio : t.ratio,
+          design_url: req.body.design_url !== undefined ? req.body.design_url : t.design_url,
+          is_active: req.body.is_active !== undefined ? (req.body.is_active ? 1 : 0) : t.is_active,
+          updated_at: new Date().toISOString()
+        };
+        return updatedItem;
+      }
+      return t;
+    });
+
+    writeDB(db);
+    return res.json({ success: true, message: "Kampanye Twibon berhasil diperbarui.", data: updatedItem });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// DELETE Twibon
+app.all(["/api/delete-twibon.php"], async (req, res) => {
+  setNoCacheHeaders(res);
+  const idToDelete = req.body?.id || req.query?.id;
+
+  if (!idToDelete) {
+    return res.status(400).json({ success: false, message: "Parameter ID Twibon wajib disertakan." });
+  }
+
+  try {
+    const remoteRes = await fetch("https://api.mkverse.my.id/api/delete-twibon.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: idToDelete })
+    });
+    if (remoteRes.ok) {
+      const json = await remoteRes.json();
+      return res.json(json);
+    }
+  } catch {}
+
+  try {
+    const db: any = readDB();
+    db.twibons = (db.twibons || []).filter((t: any) => String(t.id) !== String(idToDelete));
+    writeDB(db);
+    return res.json({ success: true, message: "Twibon berhasil dihapus dari database.", data: { id: idToDelete, database_deleted: true } });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
   }
 });
 
