@@ -280,14 +280,15 @@ export default function AdminDashboard({
           parsedMissions = (fallbackData.settings as any).missions;
         }
 
-        // Homepage photo IDs
+        // Homepage photo IDs & Slideshow photo IDs
         let selectedPhotoIds: string[] = [];
-        if (settingsMap.homepage_selected_photo_ids) {
+        const rawPhotoIds = settingsMap.homepage_selected_photo_ids || settingsMap.slideshow_selected_photo_ids;
+        if (rawPhotoIds) {
           try {
             const parsed =
-              typeof settingsMap.homepage_selected_photo_ids === "string"
-                ? JSON.parse(settingsMap.homepage_selected_photo_ids)
-                : settingsMap.homepage_selected_photo_ids;
+              typeof rawPhotoIds === "string"
+                ? JSON.parse(rawPhotoIds)
+                : rawPhotoIds;
             selectedPhotoIds = Array.isArray(parsed) ? parsed.map(String) : [];
           } catch {
             selectedPhotoIds = [];
@@ -368,7 +369,8 @@ export default function AdminDashboard({
             settingsMap.slideshow_limit !== ""
               ? Number(settingsMap.slideshow_limit)
               : 5,
-          slideshow_gallery_ids: [],
+          slideshow_gallery_ids: selectedPhotoIds,
+          homepage_selected_photo_ids: selectedPhotoIds,
           copyright_year: settingsMap.copyright_year || "2026",
           copyright_author: settingsMap.copyright_creator || "",
         };
@@ -1488,6 +1490,21 @@ export default function AdminDashboard({
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const isGallery =
+        settingsFormData.slideshow_source === "gallery" ||
+        settingsFormData.slideshow_source === "selected" ||
+        settingsFormData.slideshow_source === "PILIH DARI GALERI";
+      const cleanSlideshowSource = isGallery ? "selected" : "latest";
+
+      const selectedIds =
+        Array.isArray(settingsFormData.slideshow_gallery_ids) &&
+        settingsFormData.slideshow_gallery_ids.length > 0
+          ? settingsFormData.slideshow_gallery_ids
+          : Array.isArray(settingsFormData.homepage_gallery_photo_ids)
+            ? settingsFormData.homepage_gallery_photo_ids
+            : [];
+      const serializedPhotoIds = JSON.stringify(selectedIds);
+
       const payload: Record<string, any> = {
         ...rawSettingsMap,
         site_name: settingsFormData.site_name,
@@ -1525,12 +1542,11 @@ export default function AdminDashboard({
         homepage_active_activities: settingsFormData.enable_kegiatan_page ? 1 : 0,
         homepage_active_latest_photos: settingsFormData.enable_foto_terbaru_page ? 1 : 0,
         homepage_photo_limit: Number(settingsFormData.homepage_gallery_limit) || 6,
-        homepage_selected_photo_ids: JSON.stringify(
-          settingsFormData.homepage_gallery_photo_ids || [],
-        ),
+        homepage_selected_photo_ids: serializedPhotoIds,
+        slideshow_selected_photo_ids: serializedPhotoIds,
 
         slideshow_limit: Number(settingsFormData.slideshow_limit) || 5,
-        slideshow_source: settingsFormData.slideshow_source || "latest",
+        slideshow_source: cleanSlideshowSource,
         slideshow_duration: Number(settingsFormData.slideshow_duration) || 5,
         slideshow_transition: settingsFormData.slideshow_transition || "Fade",
         slideshow_blur: Number(settingsFormData.slideshow_blur) ?? 35,
@@ -1541,21 +1557,10 @@ export default function AdminDashboard({
 
       console.log("[GALERI SETTINGS] SAVE PAYLOAD", payload);
 
-      const res = await fetch(`${API_BASE_URL}/save-settings.php`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const { data: result, error: saveErr } = await saveSettings(payload);
 
-      if (!res.ok) {
-        throw new Error("Respon server tidak valid.");
-      }
-
-      const result = await res.json();
-      console.log("[GALERI SETTINGS] SAVE RESPONSE", result);
-
-      if (!result.success) {
-        throw new Error(result.message || "Gagal menyimpan pengaturan.");
+      if (saveErr || !result?.success) {
+        throw new Error(result?.message || saveErr?.message || "Gagal menyimpan pengaturan.");
       }
 
       // Sync Visi & Misi to vision-mission.php
@@ -4003,8 +4008,9 @@ export default function AdminDashboard({
                             {/* Option A: GAMBAR TERBARU */}
                             <label
                               className={`flex items-start gap-3 p-3.5 rounded border cursor-pointer transition-all ${
-                                (settingsFormData.slideshow_source ??
-                                  "latest") === "latest"
+                                (settingsFormData.slideshow_source !== "selected" &&
+                                  settingsFormData.slideshow_source !== "gallery" &&
+                                  settingsFormData.slideshow_source !== "PILIH DARI GALERI")
                                   ? "bg-[#f6c374]/15 border-[#f6c374] text-[#eae1d8]"
                                   : "bg-[#110e09] border-[#4f4538]/30 text-[#9b8f7f] hover:border-[#4f4538]"
                               }`}
@@ -4014,8 +4020,9 @@ export default function AdminDashboard({
                                 name="slideshow_source"
                                 value="latest"
                                 checked={
-                                  (settingsFormData.slideshow_source ??
-                                    "latest") === "latest"
+                                  settingsFormData.slideshow_source !== "selected" &&
+                                  settingsFormData.slideshow_source !== "gallery" &&
+                                  settingsFormData.slideshow_source !== "PILIH DARI GALERI"
                                 }
                                 onChange={() =>
                                   setSettingsFormData((prev) => ({
@@ -4040,8 +4047,9 @@ export default function AdminDashboard({
                             {/* Option B: PILIH DARI GALERI */}
                             <label
                               className={`flex items-start gap-3 p-3.5 rounded border cursor-pointer transition-all ${
-                                (settingsFormData.slideshow_source ??
-                                  "latest") === "gallery"
+                                (settingsFormData.slideshow_source === "selected" ||
+                                  settingsFormData.slideshow_source === "gallery" ||
+                                  settingsFormData.slideshow_source === "PILIH DARI GALERI")
                                   ? "bg-[#f6c374]/15 border-[#f6c374] text-[#eae1d8]"
                                   : "bg-[#110e09] border-[#4f4538]/30 text-[#9b8f7f] hover:border-[#4f4538]"
                               }`}
@@ -4049,15 +4057,16 @@ export default function AdminDashboard({
                               <input
                                 type="radio"
                                 name="slideshow_source"
-                                value="gallery"
+                                value="selected"
                                 checked={
-                                  (settingsFormData.slideshow_source ??
-                                    "latest") === "gallery"
+                                  settingsFormData.slideshow_source === "selected" ||
+                                  settingsFormData.slideshow_source === "gallery" ||
+                                  settingsFormData.slideshow_source === "PILIH DARI GALERI"
                                 }
                                 onChange={() =>
                                   setSettingsFormData((prev) => ({
                                     ...prev,
-                                    slideshow_source: "gallery",
+                                    slideshow_source: "selected",
                                   }))
                                 }
                                 className="mt-0.5 text-[#f6c374] focus:ring-[#f6c374] bg-[#110e09] border-[#4f4538]"
@@ -4076,7 +4085,9 @@ export default function AdminDashboard({
                           </div>
 
                           {/* PENGATURAN PILIH DARI GALERI (Hanya bila mode gallery aktif) */}
-                          {settingsFormData.slideshow_source === "gallery" && (
+                          {(settingsFormData.slideshow_source === "selected" ||
+                            settingsFormData.slideshow_source === "gallery" ||
+                            settingsFormData.slideshow_source === "PILIH DARI GALERI") && (
                             <div className="space-y-4 pt-3 border-t border-[#4f4538]/20 mt-3">
                               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                                 <div>

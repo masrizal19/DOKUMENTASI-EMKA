@@ -840,6 +840,31 @@ app.post("/api/admin/settings/reset-layout", requireAdmin, async (req, res) => {
   }
 });
 
+// Proxy settings.php and save-settings.php directly to PHP backend to prevent CORS issues in preview environments
+app.get("/api/settings.php", async (_req, res) => {
+  try {
+    const remoteRes = await fetch("https://api.mkverse.my.id/api/settings.php");
+    const json = await remoteRes.json();
+    res.json(json);
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.post("/api/save-settings.php", async (req, res) => {
+  try {
+    const remoteRes = await fetch("https://api.mkverse.my.id/api/save-settings.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body)
+    });
+    const json = await remoteRes.json();
+    res.json(json);
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // GET Medias
 app.get("/api/admin/medias", requireAdmin, async (req, res) => {
   try {

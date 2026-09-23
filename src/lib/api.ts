@@ -103,6 +103,21 @@ export async function apiRequest<T = any>(
 
     return { data: result, error: null };
   } catch (err: any) {
+    // If browser threw CORS "Failed to fetch" on external domain, try same-origin proxy fallback
+    if (typeof window !== "undefined" && url.startsWith("https://api.mkverse.my.id") && String(err?.message || "").toLowerCase().includes("fetch")) {
+      try {
+        const fallbackUrl = `/api/${cleanEndpoint}`;
+        console.log(`${tag} CORS Failed to fetch detected, retrying via same-origin proxy: ${fallbackUrl}`);
+        const fbRes = await fetch(fallbackUrl, config);
+        const fbText = await fbRes.text();
+        const fbResult = JSON.parse(fbText);
+        if (fbResult && typeof fbResult === "object" && fbResult.success !== false) {
+          return { data: fbResult, error: null };
+        }
+      } catch {
+        // Fall back to original error
+      }
+    }
     console.error(`${tag} Network/Runtime Error:`, err);
     return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
   }

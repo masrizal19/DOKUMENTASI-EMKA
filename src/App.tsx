@@ -103,13 +103,14 @@ export default function App() {
           parsedMissions = (fallbackData.settings as any).missions;
         }
 
-        // Parse homepage photo IDs
+        // Parse homepage photo IDs & slideshow photo IDs
         let selectedPhotoIds: string[] = [];
-        if (settingsMap.homepage_selected_photo_ids) {
+        const rawPhotoIds = settingsMap.homepage_selected_photo_ids || settingsMap.slideshow_selected_photo_ids;
+        if (rawPhotoIds) {
           try {
-            const parsed = typeof settingsMap.homepage_selected_photo_ids === "string"
-              ? JSON.parse(settingsMap.homepage_selected_photo_ids)
-              : settingsMap.homepage_selected_photo_ids;
+            const parsed = typeof rawPhotoIds === "string"
+              ? JSON.parse(rawPhotoIds)
+              : rawPhotoIds;
             selectedPhotoIds = Array.isArray(parsed) ? parsed.map(String) : [];
           } catch {
             selectedPhotoIds = [];
@@ -156,7 +157,8 @@ export default function App() {
           slideshow_blur: settingsMap.slideshow_blur !== undefined && settingsMap.slideshow_blur !== "" ? Number(settingsMap.slideshow_blur) : 35,
           slideshow_source: (settingsMap.slideshow_source as any) || "latest",
           slideshow_limit: settingsMap.slideshow_limit !== undefined && settingsMap.slideshow_limit !== "" ? Number(settingsMap.slideshow_limit) : 5,
-          slideshow_gallery_ids: [],
+          slideshow_gallery_ids: selectedPhotoIds,
+          homepage_selected_photo_ids: selectedPhotoIds,
           copyright_year: settingsMap.copyright_year || "2026",
           copyright_author: settingsMap.copyright_creator || ""
         };

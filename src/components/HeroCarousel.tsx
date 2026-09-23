@@ -63,9 +63,11 @@ export default function HeroCarousel({ activities, onViewActivity, settings }: H
   const slideLimit = typeof settings?.slideshow_limit === "number" && settings.slideshow_limit > 0 
     ? settings.slideshow_limit 
     : 5;
-  const galleryIds = Array.isArray(settings?.slideshow_gallery_ids) ? settings.slideshow_gallery_ids : [];
+  const galleryIds = Array.isArray(settings?.slideshow_gallery_ids) && settings.slideshow_gallery_ids.length > 0
+    ? settings.slideshow_gallery_ids
+    : (Array.isArray((settings as any)?.homepage_selected_photo_ids) ? (settings as any).homepage_selected_photo_ids : []);
 
-  if (sourceMode === "gallery" || sourceMode === "PILIH DARI GALERI") {
+  if (sourceMode === "selected" || sourceMode === "gallery" || sourceMode === "PILIH DARI GALERI") {
     // 1. "PILIH DARI GALERI": Display activities picked by admin in exact order
     const ordered: Activity[] = [];
     galleryIds.forEach(id => {
