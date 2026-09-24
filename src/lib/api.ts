@@ -1322,20 +1322,29 @@ export async function fetchTwibbonSettings(): Promise<{ data: any | null; error:
  * POST https://api.mkverse.my.id/api/activity-order.php
  */
 export async function reorderActivities(items: { id: string | number; display_order: number }[]) {
-  const orders = items.map((item, index) => ({
-    id: Number(item.id),
-    display_order: item.display_order ?? (index + 1)
-  }));
-  console.log('[GALERI API] ORDER BEFORE SAVE', { orders });
-  const res = await apiRequest(
-    "activity-order.php",
-    "POST",
-    { orders },
-    false,
-    "[GALERI API] REORDER activities"
-  );
-  console.log("[GALERI API] REORDER activities response", res.data || res.error);
-  return res;
+  console.log('[GALERI API] ORDER BEFORE SAVE', items);
+  try {
+    const promises = items.map((item, index) =>
+      apiRequest(
+        "activity-order.php",
+        "POST",
+        {
+          id: Number(item.id),
+          display_order: item.display_order ?? (index + 1),
+        },
+        false,
+        `[GALERI API] REORDER activity ${item.id}`
+      )
+    );
+    const results = await Promise.all(promises);
+    const failed = results.find(r => r.error || (r.data && r.data.success === false));
+    if (failed) {
+      return { data: null, error: failed.error || new Error(failed.data?.message || "Gagal menyimpan urutan") };
+    }
+    return { data: { success: true }, error: null };
+  } catch (err: any) {
+    return { data: null, error: err instanceof Error ? err : new Error(String(err)) };
+  }
 }
 
 
