@@ -23,6 +23,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  GripVertical,
 } from "lucide-react";
 import AdminTwibon from "./AdminTwibon.tsx";
 import { fallbackData } from "../lib/fallbackData.js";
@@ -47,6 +48,7 @@ import {
   fetchVisionMission,
   saveVisionMission,
   deleteVisionMission,
+  reorderActivities,
 } from "../lib/api.js";
 
 interface AdminDashboardProps {
@@ -91,6 +93,73 @@ export default function AdminDashboard({
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Reorder state
+  const [hasUnsavedOrderChanges, setHasUnsavedOrderChanges] = useState<boolean>(false);
+  const [isSavingOrder, setIsSavingOrder] = useState<boolean>(false);
+  const [isReorderConfirmOpen, setIsReorderConfirmOpen] = useState<boolean>(false);
+  const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null);
+  const [dragOverItemIndex, setDragOverItemIndex] = useState<number | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedItemIndex(index);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (draggedItemIndex !== null && draggedItemIndex !== index) {
+      setDragOverItemIndex(index);
+    }
+  };
+
+  const handleDrop = (index: number) => {
+    if (draggedItemIndex === null || draggedItemIndex === index) return;
+    const updated = [...activities];
+    const [movedItem] = updated.splice(draggedItemIndex, 1);
+    updated.splice(index, 0, movedItem);
+
+    const recalculated = updated.map((item, idx) => ({
+      ...item,
+      display_order: idx + 1,
+    }));
+
+    setActivities(recalculated);
+    setHasUnsavedOrderChanges(true);
+    setDraggedItemIndex(null);
+    setDragOverItemIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedItemIndex(null);
+    setDragOverItemIndex(null);
+  };
+
+  const handleConfirmSaveOrder = async () => {
+    setIsSavingOrder(true);
+    try {
+      const items = activities.map((act, idx) => ({
+        id: act.id,
+        display_order: idx + 1,
+      }));
+
+      const res = await reorderActivities(items);
+      if (res && res.data && res.data.success) {
+        onShowToast(res.data.message || "Urutan kegiatan berhasil disimpan.", "success");
+        setHasUnsavedOrderChanges(false);
+        setIsReorderConfirmOpen(false);
+        await fetchData();
+      } else {
+        const errorMsg = res?.error?.message || res?.data?.message || "Gagal menyimpan urutan kegiatan.";
+        onShowToast(errorMsg, "error");
+      }
+    } catch (err: any) {
+      onShowToast(err?.message || "Terjadi kesalahan jaringan saat menyimpan urutan.", "error");
+    } finally {
+      setIsSavingOrder(false);
+    }
+  };
 
   // Delete modal state
   const [activityToDelete, setActivityToDelete] = useState<Activity | null>(
@@ -1889,12 +1958,37 @@ export default function AdminDashboard({
                 </p>
               </div>
 
-              <button
-                onClick={handleOpenAddActivity}
-                className="bg-[#d8a85c] hover:bg-[#eae1d8] text-[#110e09] font-subheading text-[11px] tracking-widest uppercase px-5 py-3 rounded-sm font-semibold transition-all flex items-center gap-2 cursor-pointer shadow-lg"
-              >
-                <Plus className="w-4 h-4" /> Tambah Kegiatan
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={!hasUnsavedOrderChanges || isSavingOrder}
+                  onClick={() => setIsReorderConfirmOpen(true)}
+                  className={`font-subheading text-[11px] tracking-widest uppercase px-4 py-3 rounded-sm font-semibold transition-all flex items-center gap-2 cursor-pointer shadow-lg ${
+                    hasUnsavedOrderChanges
+                      ? "bg-[#f6c374] hover:bg-[#d8a85c] text-[#110e09]"
+                      : "bg-[#17130e] text-[#9b8f7f] border border-[#4f4538]/30 opacity-60 cursor-not-allowed"
+                  }`}
+                >
+                  {isSavingOrder ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>MENYIMPAN...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>SIMPAN URUTAN</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  onClick={handleOpenAddActivity}
+                  className="bg-[#d8a85c] hover:bg-[#eae1d8] text-[#110e09] font-subheading text-[11px] tracking-widest uppercase px-5 py-3 rounded-sm font-semibold transition-all flex items-center gap-2 cursor-pointer shadow-lg"
+                >
+                  <Plus className="w-4 h-4" /> Tambah Kegiatan
+                </button>
+              </div>
             </div>
 
             {/* List Table */}
@@ -1903,6 +1997,7 @@ export default function AdminDashboard({
                 <table className="w-full text-left font-body text-xs text-[#eae1d8]">
                   <thead>
                     <tr className="border-b border-[#4f4538]/20 text-[#9b8f7f] uppercase font-subheading tracking-wider bg-[#17130e]/80">
+                      <th className="py-4 px-4 w-16 text-center">Urutan</th>
                       <th className="py-4 px-6">Cover</th>
                       <th className="py-4 px-6">Judul Kegiatan</th>
                       <th className="py-4 px-6">Kategori</th>
@@ -1915,7 +2010,7 @@ export default function AdminDashboard({
                     {activities.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={6}
+                          colSpan={7}
                           className="text-center py-12 text-[#9b8f7f]"
                         >
                           Belum ada kegiatan ditambahkan. Klik tombol diatas
@@ -1923,11 +2018,29 @@ export default function AdminDashboard({
                         </td>
                       </tr>
                     ) : (
-                      activities.map((act) => (
+                      activities.map((act, index) => (
                         <tr
                           key={act.id}
-                          className="hover:bg-white/5 transition-colors"
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, index)}
+                          onDragOver={(e) => handleDragOver(e, index)}
+                          onDrop={() => handleDrop(index)}
+                          onDragEnd={handleDragEnd}
+                          className={`hover:bg-white/5 transition-colors ${
+                            draggedItemIndex === index ? "opacity-40 bg-[#f6c374]/5 shadow-inner" : ""
+                          } ${dragOverItemIndex === index ? "border-t-2 border-[#f6c374]" : ""}`}
                         >
+                          <td className="py-4 px-4 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <span className="font-mono text-[11px] text-[#9b8f7f]">{index + 1}</span>
+                              <div
+                                className="cursor-grab active:cursor-grabbing p-1 text-[#9b8f7f] hover:text-[#f6c374] transition-colors rounded hover:bg-white/5"
+                                title="Seret untuk mengubah urutan"
+                              >
+                                <GripVertical className="w-4 h-4" />
+                              </div>
+                            </div>
+                          </td>
                           <td className="py-4 px-6">
                             <img
                               src={resolveImageUrl(act.cover_image)}
@@ -5661,6 +5774,52 @@ export default function AdminDashboard({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMATION MODAL (REORDER ACTIVITIES) */}
+      {isReorderConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-fade-in">
+          <div className="glass-panel w-full max-w-md rounded-lg border border-[#4f4538]/30 bg-[#14100b] p-6 shadow-2xl">
+            <div className="flex items-center gap-3 text-[#f6c374] mb-3">
+              <div className="p-2.5 rounded-full bg-[#f6c374]/10 border border-[#f6c374]/20">
+                <Save className="w-5 h-5 text-[#f6c374]" />
+              </div>
+              <h3 className="font-display text-lg font-bold text-[#eae1d8]">
+                Simpan Perubahan Urutan?
+              </h3>
+            </div>
+
+            <p className="font-body text-xs text-[#eae1d8] leading-relaxed mb-4">
+              Apakah Anda yakin ingin menyimpan perubahan urutan kegiatan? Urutan baru akan diterapkan pada halaman publik.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#4f4538]/15">
+              <button
+                type="button"
+                disabled={isSavingOrder}
+                onClick={() => setIsReorderConfirmOpen(false)}
+                className="px-4 py-2 rounded-sm border border-[#4f4538]/30 font-subheading text-xs tracking-wider uppercase text-[#eae1d8] hover:bg-[#4f4538]/20 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                BATAL
+              </button>
+              <button
+                type="button"
+                disabled={isSavingOrder}
+                onClick={handleConfirmSaveOrder}
+                className="px-5 py-2 rounded-sm bg-[#f6c374] hover:bg-[#d8a85c] text-[#110e09] font-subheading text-xs tracking-wider uppercase font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-2"
+              >
+                {isSavingOrder ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>MENYIMPAN...</span>
+                  </>
+                ) : (
+                  <span>SIMPAN</span>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

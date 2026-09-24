@@ -1317,5 +1317,23 @@ export async function fetchTwibbonSettings(): Promise<{ data: any | null; error:
   }
 }
 
+/**
+ * Reorder Activities
+ * POST https://api.mkverse.my.id/api/activities.php?action=reorder
+ */
+export async function reorderActivities(items: { id: string | number; display_order: number }[]) {
+  console.log("[GALERI API] REORDER activities", items);
+  const res = await apiRequest(
+    "activities.php?action=reorder",
+    "POST",
+    { items },
+    false,
+    "[GALERI API] REORDER activities"
+  );
+  console.log("[GALERI API] REORDER activities response", res.data || res.error);
+  return res;
+}
+
+
 
 
