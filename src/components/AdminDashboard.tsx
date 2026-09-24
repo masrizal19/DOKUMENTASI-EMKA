@@ -98,42 +98,41 @@ export default function AdminDashboard({
   const [hasUnsavedOrderChanges, setHasUnsavedOrderChanges] = useState<boolean>(false);
   const [isSavingOrder, setIsSavingOrder] = useState<boolean>(false);
   const [isReorderConfirmOpen, setIsReorderConfirmOpen] = useState<boolean>(false);
-  const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null);
-  const [dragOverItemIndex, setDragOverItemIndex] = useState<number | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
-  const handleDragStart = (e: React.DragEvent, index: number) => {
-    setDraggedItemIndex(index);
-    e.dataTransfer.effectAllowed = "move";
+  const handleDragStart = (index: number) => {
+    setDraggedIndex(index);
   };
 
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    if (draggedItemIndex !== null && draggedItemIndex !== index) {
-      setDragOverItemIndex(index);
+  const handleDragOver = (event: React.DragEvent, index: number) => {
+    event.preventDefault();
+    if (draggedIndex === null || draggedIndex === index) {
+      return;
     }
-  };
+    const newItems = [...activities];
+    const [movedItem] = newItems.splice(draggedIndex, 1);
+    newItems.splice(index, 0, movedItem);
 
-  const handleDrop = (index: number) => {
-    if (draggedItemIndex === null || draggedItemIndex === index) return;
-    const updated = [...activities];
-    const [movedItem] = updated.splice(draggedItemIndex, 1);
-    updated.splice(index, 0, movedItem);
-
-    const recalculated = updated.map((item, idx) => ({
+    const recalculated = newItems.map((item, idx) => ({
       ...item,
       display_order: idx + 1,
     }));
 
     setActivities(recalculated);
     setHasUnsavedOrderChanges(true);
-    setDraggedItemIndex(null);
-    setDragOverItemIndex(null);
+    setDraggedIndex(index);
+    setDragOverIndex(index);
+  };
+
+  const handleDrop = (index: number) => {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
   };
 
   const handleDragEnd = () => {
-    setDraggedItemIndex(null);
-    setDragOverItemIndex(null);
+    setDraggedIndex(null);
+    setDragOverIndex(null);
   };
 
   const handleConfirmSaveOrder = async () => {
@@ -2021,21 +2020,22 @@ export default function AdminDashboard({
                       activities.map((act, index) => (
                         <tr
                           key={act.id}
-                          onDragOver={(e) => handleDragOver(e, index)}
+                          draggable={true}
+                          onDragStart={() => handleDragStart(index)}
+                          onDragOver={(event) => handleDragOver(event, index)}
                           onDrop={() => handleDrop(index)}
                           onDragEnd={handleDragEnd}
-                          className={`hover:bg-white/5 transition-colors ${
-                            draggedItemIndex === index ? "opacity-40 bg-[#f6c374]/5 shadow-inner" : ""
-                          } ${dragOverItemIndex === index ? "border-t-2 border-[#f6c374]" : ""}`}
+                          className={`hover:bg-white/5 transition-colors cursor-grab active:cursor-grabbing ${
+                            draggedIndex === index ? "opacity-50 bg-[#f6c374]/15 shadow-inner scale-[0.99]" : ""
+                          } ${dragOverIndex === index ? "border-t-2 border-[#f6c374] bg-[#f6c374]/5" : ""}`}
                         >
                           <td className="py-4 px-4 text-center">
                             <div className="flex items-center justify-center gap-2">
                               <span className="font-mono text-[11px] text-[#9b8f7f]">{index + 1}</span>
                               <div
-                                draggable
-                                onDragStart={(e) => handleDragStart(e, index)}
-                                onDragEnd={handleDragEnd}
-                                className="cursor-grab active:cursor-grabbing p-1 text-[#9b8f7f] hover:text-[#f6c374] transition-colors rounded hover:bg-white/5"
+                                onMouseDown={(e) => e.stopPropagation()}
+                                style={{ cursor: 'grab' }}
+                                className="p-1 text-[#9b8f7f] hover:text-[#f6c374] transition-colors rounded hover:bg-white/5"
                                 title="Seret untuk mengubah urutan"
                               >
                                 <GripVertical className="w-4 h-4 pointer-events-none" />
