@@ -2021,8 +2021,6 @@ export default function AdminDashboard({
                       activities.map((act, index) => (
                         <tr
                           key={act.id}
-                          draggable
-                          onDragStart={(e) => handleDragStart(e, index)}
                           onDragOver={(e) => handleDragOver(e, index)}
                           onDrop={() => handleDrop(index)}
                           onDragEnd={handleDragEnd}
@@ -2034,10 +2032,13 @@ export default function AdminDashboard({
                             <div className="flex items-center justify-center gap-2">
                               <span className="font-mono text-[11px] text-[#9b8f7f]">{index + 1}</span>
                               <div
+                                draggable
+                                onDragStart={(e) => handleDragStart(e, index)}
+                                onDragEnd={handleDragEnd}
                                 className="cursor-grab active:cursor-grabbing p-1 text-[#9b8f7f] hover:text-[#f6c374] transition-colors rounded hover:bg-white/5"
                                 title="Seret untuk mengubah urutan"
                               >
-                                <GripVertical className="w-4 h-4" />
+                                <GripVertical className="w-4 h-4 pointer-events-none" />
                               </div>
                             </div>
                           </td>
