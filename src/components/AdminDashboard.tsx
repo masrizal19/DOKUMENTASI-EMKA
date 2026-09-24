@@ -90,6 +90,7 @@ export default function AdminDashboard({
     is_active: 1,
   });
   const [activities, setActivities] = useState<Activity[]>([]);
+  const [savedActivities, setSavedActivities] = useState<Activity[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -144,17 +145,22 @@ export default function AdminDashboard({
       }));
 
       const res = await reorderActivities(items);
-      if (res && res.data && res.data.success) {
-        onShowToast(res.data.message || "Urutan kegiatan berhasil disimpan.", "success");
+      if (res && res.data && (res.data.success || res.data.success === undefined)) {
+        onShowToast("Urutan kegiatan berhasil disimpan.", "success");
         setHasUnsavedOrderChanges(false);
         setIsReorderConfirmOpen(false);
+        setSavedActivities(JSON.parse(JSON.stringify(activities)));
         await fetchData();
       } else {
         const errorMsg = res?.error?.message || res?.data?.message || "Gagal menyimpan urutan kegiatan.";
         onShowToast(errorMsg, "error");
+        setActivities(JSON.parse(JSON.stringify(savedActivities)));
+        setHasUnsavedOrderChanges(false);
       }
     } catch (err: any) {
       onShowToast(err?.message || "Terjadi kesalahan jaringan saat menyimpan urutan.", "error");
+      setActivities(JSON.parse(JSON.stringify(savedActivities)));
+      setHasUnsavedOrderChanges(false);
     } finally {
       setIsSavingOrder(false);
     }
@@ -574,6 +580,7 @@ export default function AdminDashboard({
       });
 
       setActivities(updatedActivities);
+      setSavedActivities(JSON.parse(JSON.stringify(updatedActivities)));
       setPhotos(mappedPhotos);
 
       if (mappedActivities.length > 0) {

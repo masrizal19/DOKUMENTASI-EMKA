@@ -1319,12 +1319,12 @@ export async function fetchTwibbonSettings(): Promise<{ data: any | null; error:
 
 /**
  * Reorder Activities
- * POST https://api.mkverse.my.id/api/activities.php?action=reorder
+ * POST https://api.mkverse.my.id/api/activity-order.php
  */
 export async function reorderActivities(items: { id: string | number; display_order: number }[]) {
-  console.log("[GALERI API] REORDER activities", items);
+  console.log('[GALERI API] ORDER BEFORE SAVE', { items });
   const res = await apiRequest(
-    "activities.php?action=reorder",
+    "activity-order.php",
     "POST",
     { items },
     false,
