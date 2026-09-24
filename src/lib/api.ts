@@ -1322,11 +1322,15 @@ export async function fetchTwibbonSettings(): Promise<{ data: any | null; error:
  * POST https://api.mkverse.my.id/api/activity-order.php
  */
 export async function reorderActivities(items: { id: string | number; display_order: number }[]) {
-  console.log('[GALERI API] ORDER BEFORE SAVE', { items });
+  const orders = items.map((item, index) => ({
+    id: Number(item.id),
+    display_order: item.display_order ?? (index + 1)
+  }));
+  console.log('[GALERI API] ORDER BEFORE SAVE', { orders });
   const res = await apiRequest(
     "activity-order.php",
     "POST",
-    { items },
+    { orders },
     false,
     "[GALERI API] REORDER activities"
   );

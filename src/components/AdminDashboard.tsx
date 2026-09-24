@@ -5800,7 +5800,7 @@ export default function AdminDashboard({
             </div>
 
             <p className="font-body text-xs text-[#eae1d8] leading-relaxed mb-4">
-              Apakah Anda yakin ingin menyimpan perubahan urutan kegiatan? Urutan baru akan diterapkan pada halaman publik.
+              Simpan perubahan urutan kegiatan?
             </p>
 
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#4f4538]/15">
