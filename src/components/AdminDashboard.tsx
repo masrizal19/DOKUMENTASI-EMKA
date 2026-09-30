@@ -579,6 +579,7 @@ export default function AdminDashboard({
         return act;
       });
 
+      updatedActivities.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
       setActivities(updatedActivities);
       setSavedActivities(JSON.parse(JSON.stringify(updatedActivities)));
       setPhotos(mappedPhotos);
