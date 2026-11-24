@@ -107,18 +107,26 @@ export default function PublicTwibon({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const [isDownloading, setIsDownloading] = useState(false);
+
   // Record a download increment in MySQL via PHP Backend
   const handleDownloadCompleted = async () => {
-    if (!activeCampaign) return;
+    if (!activeCampaign || isDownloading) return;
+    setIsDownloading(true);
     
-    // Increment count in MySQL database
-    await incrementTwibbonUse(activeCampaign.id);
+    // Increment count in MySQL database and get fresh count from server
+    const result = await incrementTwibbonUse(activeCampaign.id);
+    const serverCount = result.useCount;
 
-    // Sync current active model in local state
-    setActiveCampaign((prev) => prev ? { ...prev, useCount: prev.useCount + 1 } : null);
+    // Sync current active model in local state using server count or fallback increment
+    setActiveCampaign((prev) => prev ? { ...prev, useCount: serverCount !== undefined ? serverCount : prev.useCount + 1 } : null);
     setTwibbons((prev) =>
-      prev.map((t) => (t.id === activeCampaign.id ? { ...t, useCount: t.useCount + 1 } : t))
+      prev.map((t) => (t.id === activeCampaign.id ? { ...t, useCount: serverCount !== undefined ? serverCount : t.useCount + 1 } : t))
     );
+
+    setTimeout(() => {
+      setIsDownloading(false);
+    }, 1500);
   };
 
   // Filter explore list

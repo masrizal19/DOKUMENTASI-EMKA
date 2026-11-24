@@ -1278,18 +1278,37 @@ export async function deleteTwibbonFile(filename: string): Promise<{ data: any |
  * 8. Increment use/download count for a Twibon in MySQL
  * Endpoint: https://api.mkverse.my.id/api/twibon-update.php
  */
-export async function incrementTwibbonUse(id: string | number): Promise<void> {
+export async function incrementTwibbonUse(id: string | number): Promise<{ success: boolean; useCount?: number }> {
   const numericId = Number(id);
-  const endpoint = "https://api.mkverse.my.id/api/twibon.php";
-  try {
-    await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "increment_use", id: numericId }),
-    });
-  } catch {
-    // Non-blocking statistic increment
+  const endpoints = [
+    `${API_BASE_URL}/twibon.php`,
+    `${API_BASE_URL}/twibons.php`,
+    `https://api.mkverse.my.id/api/twibon.php`
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ action: "increment_use", id: numericId }),
+      });
+      if (res.ok) {
+        const text = await res.text();
+        try {
+          const json = JSON.parse(text);
+          if (json && json.success) {
+            const newCount = json.data?.use_count ?? json.data?.useCount;
+            console.log(`[Twibbon] Successfully incremented use count for ID ${numericId} -> ${newCount}`);
+            return { success: true, useCount: newCount };
+          }
+        } catch (_) {}
+      }
+    } catch (err) {
+      console.warn(`[Twibbon] Failed increment attempt on ${endpoint}:`, err);
+    }
   }
+  return { success: false };
 }
 
 /**
