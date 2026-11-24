@@ -4,13 +4,7 @@
  */
 
 const getApiBaseUrl = (): string => {
-  const envUrl = (
-    (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_API_URL) ||
-    "https://api.mkverse.my.id"
-  )
-    .trim()
-    .replace(/\/+$/, "");
-  return envUrl.endsWith("/api") ? envUrl : `${envUrl}/api`;
+  return "/api";
 };
 
 const getStorageBaseUrl = (): string => {
