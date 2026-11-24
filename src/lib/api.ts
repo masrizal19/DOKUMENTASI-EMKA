@@ -4,7 +4,7 @@
  */
 
 const getApiBaseUrl = (): string => {
-  return "/api";
+  return "https://api.mkverse.my.id/api";
 };
 
 const getStorageBaseUrl = (): string => {
